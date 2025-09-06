@@ -1,0 +1,35 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+
+# Telegram Bot
+python-telegram-bot==20.6
+
+# File handling
+python-multipart==0.0.6
+aiofiles==23.2.1
+
+# API Clients
+elevenlabs>=1.0.0
+google-generativeai==0.3.2
+
+# Audio Processing
+librosa==0.10.1
+soundfile==0.12.1
+
+# Configuration and Validation
+pydantic==2.5.0
+python-dotenv==1.0.0
+pydantic-settings
+
+# HTTP Client
+httpx==0.25.2
+
+# Logging
+python-json-logger==2.0.7
+
+# Development and Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+black==23.11.0
+flake8==6.1.0
+

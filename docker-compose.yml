@@ -1,0 +1,63 @@
+version: "3.9"
+
+services:
+  telegram-audio-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      # API Keys (load from .env file)
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      
+      # Production Configuration
+      - LOG_LEVEL=INFO
+      - MAX_FILE_SIZE=26214400  # 25MB
+      - UPLOAD_DIR=uploads
+      
+      # Model Configuration
+      - ELEVEN_LABS_MODEL=eleven_multilingual_v2
+      - GEMINI_MODEL=gemini-2.5-pro
+      
+      # Polling Configuration
+      - POLLING_INTERVAL=1.0
+    
+    volumes:
+      # Persistent storage for uploads and logs
+      - audio_uploads:/app/uploads
+      - app_logs:/app/logs
+    
+    restart: always
+    
+    # Production resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+    
+    # Production logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+    
+    # Security hardening
+    security_opt:
+      - no-new-privileges:true
+    
+    # Read-only root filesystem for security
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+
+volumes:
+  audio_uploads:
+    driver: local
+  app_logs:
+    driver: local
