@@ -65,7 +65,7 @@ echo "📋 Production deployment status:"
 docker-compose ps
 
 echo "📊 Resource usage:"
-docker stats --no-stream telegram-audio-bot
+docker stats --no-stream adick_bot_telegram-audio-bot_1 2>/dev/null || echo "Container stats not available yet"
 
 echo "🎉 Production deployment completed successfully!"
 echo "📱 Bot is now running and processing audio messages"
