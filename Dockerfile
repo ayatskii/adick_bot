@@ -49,6 +49,10 @@ COPY --chown=appuser:appuser ./bot_main.py ./bot_main.py
 COPY --chown=appuser:appuser ./test_api.py ./test_api.py
 COPY --chown=appuser:appuser ./requirements.txt ./requirements.txt
 
+# Set working directory to /app and add to Python path
+WORKDIR /app
+ENV PYTHONPATH=/app
+
 # Create necessary directories with proper permissions
 RUN mkdir -p uploads logs tmp && \
     chown -R appuser:appuser uploads logs tmp && \
@@ -58,8 +62,7 @@ RUN mkdir -p uploads logs tmp && \
 USER appuser
 
 # Environment variables for production
-ENV PYTHONPATH=/app:/app/app \
-    PYTHONUNBUFFERED=1 \
+ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONHASHSEED=random \
     PIP_NO_CACHE_DIR=1 \
