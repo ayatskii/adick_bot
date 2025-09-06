@@ -17,7 +17,7 @@ services:
       - UPLOAD_DIR=uploads
       
       # Model Configuration
-      - ELEVEN_LABS_MODEL=eleven_multilingual_v2
+      - ELEVEN_LABS_MODEL=scribe_v1
       - GEMINI_MODEL=gemini-2.5-pro
       
       # Polling Configuration
