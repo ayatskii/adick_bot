@@ -58,7 +58,7 @@ RUN mkdir -p uploads logs tmp && \
 USER appuser
 
 # Environment variables for production
-ENV PYTHONPATH=/app \
+ENV PYTHONPATH=/app:/app/app \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONHASHSEED=random \
