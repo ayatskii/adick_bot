@@ -1,5 +1,5 @@
 # Production-optimized multi-stage build
-FROM python:3.11-slim as dependencies
+FROM python:3.11-slim AS dependencies
 
 # Install system dependencies for building
 RUN apt-get update && apt-get install -y \
@@ -22,7 +22,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Runtime stage - clean lightweight image
-FROM python:3.11-slim as runtime
+FROM python:3.11-slim AS runtime
 
 # Install only runtime dependencies
 RUN apt-get update && apt-get install -y \
@@ -67,7 +67,7 @@ ENV PYTHONPATH=/app \
 
 # Health check for container orchestration
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD python -c "from app.config import settings; print('Health check passed')" || exit 1
+    CMD python -c "import sys; sys.path.append('/app'); from app.config import settings; print('Health check passed')" || exit 1
 
 # Expose application port (for future web interface)
 EXPOSE 8000

@@ -12,12 +12,12 @@ chmod +x scripts/*.sh
 # Check if .env exists
 if [[ ! -f ".env" ]]; then
     echo "📋 Creating .env file from template..."
-    if [[ -f "env.production.example" ]]; then
-        cp env.production.example .env
+    if [[ -f "env.example" ]]; then
+        cp env.example .env
         echo "✅ Created .env file from template"
         echo "⚠️  Please edit .env with your actual API keys before deploying"
     else
-        echo "❌ Template file env.production.example not found"
+        echo "❌ Template file env.example not found"
         exit 1
     fi
 else

@@ -36,9 +36,6 @@ services:
         limits:
           cpus: '2.0'
           memory: 2G
-        reservations:
-          cpus: '1.0'
-          memory: 1G
     
     # Production logging configuration
     logging:
