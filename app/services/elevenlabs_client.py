@@ -185,6 +185,10 @@ class ElevenLabsClient:
             logger.error(f"Unexpected error during transcription: {e}", exc_info=True)
             return {"success": False, "error": f"Transcription failed: {str(e)}"}
     
+    def _transcribe_sync_BACKUP(self, file_path: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """BACKUP - will be replaced"""
+        pass
+        
     def _transcribe_sync(self, file_path: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
         Synchronous transcription method (called from thread executor)
@@ -196,71 +200,66 @@ class ElevenLabsClient:
         Returns:
             Transcription result dictionary or None if failed
         """
+        # Simple implementation - just use the HTTP fallback method
+        logger.info("Using HTTP fallback method for transcription")
+        return self._transcribe_with_requests(file_path, params)
         try:
             with open(file_path, "rb") as audio_file:
                 # Handle different API versions
-                if self.use_modern_api:
-                    # Modern function-based API
-                    logger.info("Using modern ElevenLabs function-based API")
-                    try:
-                        response = speech_to_text(
-                            audio=audio_file,
-                            model_id=params.get("model_id", self.model_id)
-                        )
-                    except NameError:
-                        # speech_to_text function not available, try different approach
-                        logger.warning("speech_to_text function not available, falling back to requests")
-                        return self._transcribe_with_requests(file_path, params)
-                else:
-                    # Legacy client-based API
-                    logger.info("Using legacy ElevenLabs client-based API")
-                    if hasattr(self.client, 'speech_to_text') and hasattr(self.client.speech_to_text, 'convert'):
-                        response = self.client.speech_to_text.convert(
-                            file=audio_file,
-                            model_id=params.get("model_id", self.model_id)
-                        )
-                    elif hasattr(self.client, 'transcribe'):
-                        response = self.client.transcribe(
-                            audio=audio_file,
-                            **params
-                        )
-                    else:
-                        # Fallback to direct API call
-                        logger.info("No client methods found, using direct API call")
-                        return self._transcribe_with_requests(file_path, params)
-                        
-                except (AttributeError, TypeError) as e:
-                    logger.info(f"Client method failed ({e}), trying direct API call")
-                    # Direct API call as fallback
-                    import requests
-                    import json
-                    
-                    # Reset file pointer since it might have been read
-                    audio_file.seek(0)
-                    
-                    # Direct API call with corrected parameters
-                    # Try different API endpoints that might work
-                    endpoints_to_try = [
-                        "https://api.elevenlabs.io/v1/speech-to-text",
-                        "https://api.elevenlabs.io/v1/speech-to-text/transcribe",
-                    ]
-                    
-                    last_error = None
-                    for endpoint_url in endpoints_to_try:
+                try:
+                    if self.use_modern_api:
+                        # Modern function-based API
+                        logger.info("Using modern ElevenLabs function-based API")
                         try:
-                            logger.info(f"Trying endpoint: {endpoint_url}")
-                            headers = {
-                                "xi-api-key": settings.elevenlabs_api_key
-                            }
-                            
-                            # Reset file pointer
-                            audio_file.seek(0)
-                            
-                            # Prepare files and data for the API call
-                            files = {"file": ("audio.ogg", audio_file, "audio/ogg")}  # Use 'file' not 'audio'
-                            data = {
-                                "model_id": "scribe_v1"  # Use valid speech-to-text model
-                            }
+                            response = speech_to_text(
+                                audio=audio_file,
+                                model_id=params.get("model_id", self.model_id)
+                            )
+                        except NameError:
+                            # speech_to_text function not available, try different approach
+                            logger.warning("speech_to_text function not available, falling back to requests")
+                            return self._transcribe_with_requests(file_path, params)
+                    else:
+                        # Legacy client-based API
+                        logger.info("Using legacy ElevenLabs client-based API")
+                        if hasattr(self.client, 'speech_to_text') and hasattr(self.client.speech_to_text, 'convert'):
+                            response = self.client.speech_to_text.convert(
+                                file=audio_file,
+                                model_id=params.get("model_id", self.model_id)
+                            )
+                        elif hasattr(self.client, 'transcribe'):
+                            response = self.client.transcribe(
+                                audio=audio_file,
+                                **params
+                            )
+                        else:
+                            # Fallback to direct API call
+                            logger.info("No client methods found, using direct API call")
+                            return self._transcribe_with_requests(file_path, params)
+                        
+                except (AttributeError, TypeError, NameError) as e:
+                    logger.info(f"Client method failed ({e}), using HTTP fallback")
+                    return self._transcribe_with_requests(file_path, params)
+                
+                # If we get here, the API call was successful, process the response
+                if hasattr(response, 'text'):
+                    text = response.text
+                elif isinstance(response, dict):
+                    text = response.get('text', '')
+                else:
+                    text = str(response)
+                
+                return {
+                    "text": text,
+                    "language": "unknown", 
+                    "confidence": 1.0,
+                    "detected_language": "unknown"
+                }
+                
+        except Exception as e:
+            logger.error(f"Sync transcription error: {e}")
+            return None
+    async def transcribe_with_retry(
                             
                             # Add optional parameters
                             if params.get("language_code") and params["language_code"] != "auto":
