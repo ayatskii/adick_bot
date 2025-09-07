@@ -378,7 +378,7 @@ JSON RESPONSE:"""
                             return {"success": False, "error": "Content filtered by safety system - using fallback"}
                         elif reason_code == 2:  # MAX_TOKENS - might be schema complexity issue
                             logger.warning(f"Response truncated due to length limit - this might be schema-related")
-                            # Continue processing but note the issue
+                            return {"success": False, "error": "Response truncated - likely schema complexity issue"}
                         elif reason_code != 1:  # Not STOP
                             logger.warning(f"Candidate finished with reason: {reason_code} - {reason_text}")
                             if reason_code in [4, 5]:  # RECITATION or OTHER
