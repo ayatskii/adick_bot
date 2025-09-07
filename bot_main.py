@@ -21,8 +21,14 @@ import asyncio
 import logging
 import signal
 import sys
+import os
 from contextlib import asynccontextmanager
 from typing import Dict, Any, Optional
+
+# Ensure the app module can be found
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
 
 # Telegram Bot Framework
 from telegram import Update, Message, Audio, Voice, VideoNote, Document

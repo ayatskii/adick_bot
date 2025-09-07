@@ -51,12 +51,15 @@ COPY --chown=appuser:appuser ./requirements.txt ./requirements.txt
 
 # Set working directory to /app and add to Python path
 WORKDIR /app
-ENV PYTHONPATH=/app
+ENV PYTHONPATH=/app:/app/app
 
 # Create necessary directories with proper permissions
 RUN mkdir -p uploads logs tmp && \
     chown -R appuser:appuser uploads logs tmp && \
     chmod 755 uploads logs tmp
+
+# Verify the app module structure
+RUN python -c "import sys; print('Python path:', sys.path); import app.config; print('app.config imported successfully')"
 
 # Switch to non-root user
 USER appuser
