@@ -71,16 +71,26 @@ class GeminiClient:
             Formatted prompt for the AI model
         """
         
-        base_prompt = """You are a professional editor and grammar expert. Your task is to correct grammar, spelling, punctuation, and improve clarity while preserving the original meaning and tone.
+        base_prompt = """You are a professional editor and grammar expert. Your task is to correct grammar, spelling, punctuation, and improve clarity while preserving the original meaning and tone. Additionally, you will provide feedback on grammar mistakes and speaking improvement suggestions.
 
 RULES:
-1. Return ONLY the corrected text, no explanations or comments
-2. Preserve the original meaning and intent
-3. Maintain the original tone (formal/informal)
-4. Fix grammar, spelling, punctuation, and word choice errors
-5. Improve clarity and flow where needed
-6. If the text is already correct, return it unchanged
-7. Do not add new information or change the core message
+1. First, provide the corrected text in a clear, formatted section
+2. Then explain any grammar, spelling, or punctuation mistakes you found
+3. Offer specific suggestions for improving speaking and communication skills
+4. Preserve the original meaning and intent in your corrections
+5. Maintain the original tone (formal/informal)
+6. Fix grammar, spelling, punctuation, and word choice errors
+7. Improve clarity and flow where needed
+8. If the text is already correct, acknowledge this and still provide general speaking tips
+9. Do not add new information or change the core message
+10. Format your response as JSON with clear sections: "corrected_text," "grammar_issues," and "speaking_tips"
+
+You MUST respond with valid JSON in this exact format:
+{
+  "corrected_text": "The grammatically corrected version of the text",
+  "grammar_issues": ["List of specific grammar, spelling, or punctuation issues found"],
+  "speaking_tips": ["List of specific suggestions for improving speaking and communication"]
+}
 
 """
         
@@ -213,14 +223,8 @@ JSON RESPONSE:"""
                 # Parse JSON response for advanced mode
                 result = self._parse_advanced_response(raw_response, text)
             else:
-                # Clean simple response
-                corrected_text = self._clean_simple_response(raw_response)
-                result = {
-                    "success": True,
-                    "original_text": text,
-                    "corrected_text": corrected_text,
-                    "processing_time": processing_time
-                }
+                # Parse JSON response (new format)
+                result = self._parse_json_response(raw_response, text, processing_time)
             
             logger.info(f"Grammar check completed in {processing_time:.2f}s")
             return result
@@ -291,6 +295,85 @@ JSON RESPONSE:"""
             return "Grammar check unavailable - original text preserved"
         
         return cleaned
+    
+    def _parse_json_response(self, response_text: str, original_text: str, processing_time: float) -> Dict[str, Any]:
+        """
+        Parse JSON response from the AI model
+        
+        Args:
+            response_text: Raw JSON response from the model
+            original_text: Original input text
+            processing_time: Time taken for processing
+            
+        Returns:
+            Parsed response dictionary
+        """
+        try:
+            import json
+            import re
+            
+            # Clean up the response text to extract JSON
+            cleaned_response = response_text.strip()
+            
+            # Remove any markdown code block formatting
+            if cleaned_response.startswith('```json'):
+                cleaned_response = cleaned_response[7:]
+            if cleaned_response.startswith('```'):
+                cleaned_response = cleaned_response[3:]
+            if cleaned_response.endswith('```'):
+                cleaned_response = cleaned_response[:-3]
+            
+            # Find JSON object in the response
+            json_match = re.search(r'\{.*\}', cleaned_response, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+            else:
+                json_str = cleaned_response
+            
+            # Parse JSON
+            parsed = json.loads(json_str)
+            
+            # Extract required fields
+            corrected_text = parsed.get("corrected_text", "")
+            grammar_issues = parsed.get("grammar_issues", [])
+            speaking_tips = parsed.get("speaking_tips", [])
+            
+            # Ensure grammar_issues and speaking_tips are lists
+            if isinstance(grammar_issues, str):
+                grammar_issues = [grammar_issues]
+            if isinstance(speaking_tips, str):
+                speaking_tips = [speaking_tips]
+            
+            return {
+                "success": True,
+                "original_text": original_text,
+                "corrected_text": corrected_text,
+                "grammar_issues": grammar_issues,
+                "speaking_tips": speaking_tips,
+                "processing_time": processing_time
+            }
+            
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse JSON response, falling back to simple parsing: {e}")
+            # Fallback to simple text parsing
+            corrected_text = self._clean_simple_response(response_text)
+            return {
+                "success": True,
+                "original_text": original_text,
+                "corrected_text": corrected_text,
+                "grammar_issues": ["Unable to analyze grammar issues - JSON parsing failed"],
+                "speaking_tips": ["Try speaking more clearly and use complete sentences"],
+                "processing_time": processing_time
+            }
+        except Exception as e:
+            logger.error(f"Error parsing JSON response: {e}")
+            return {
+                "success": False,
+                "error": f"Failed to parse response: {str(e)}",
+                "original_text": original_text,
+                "corrected_text": original_text,
+                "processing_time": processing_time
+            }
     
     def _parse_advanced_response(self, response_text: str, original_text: str) -> Dict[str, Any]:
         """

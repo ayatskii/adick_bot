@@ -391,6 +391,28 @@ class TelegramAudioBot:
         else:
             response += f"✨ **Grammar:** Perfect! No corrections needed.\n\n"
         
+        # Grammar issues and speaking tips (new features)
+        grammar_issues = result.get("grammar_issues", [])
+        speaking_tips = result.get("speaking_tips", [])
+        
+        if grammar_issues and isinstance(grammar_issues, list) and len(grammar_issues) > 0:
+            # Filter out placeholder messages
+            real_issues = [issue for issue in grammar_issues if issue and "Unable to analyze" not in issue]
+            if real_issues:
+                response += f"🔍 **Grammar Issues Found:**\n"
+                for i, issue in enumerate(real_issues[:3], 1):  # Limit to 3 issues
+                    response += f"• {issue}\n"
+                response += "\n"
+        
+        if speaking_tips and isinstance(speaking_tips, list) and len(speaking_tips) > 0:
+            # Filter out placeholder messages
+            real_tips = [tip for tip in speaking_tips if tip and "Try speaking more clearly" not in tip]
+            if real_tips:
+                response += f"💡 **Speaking Improvement Tips:**\n"
+                for i, tip in enumerate(real_tips[:3], 1):  # Limit to 3 tips
+                    response += f"• {tip}\n"
+                response += "\n"
+        
         # Processing details
         response += f"📊 **Processing Details:**\n"
         response += f"• Language: {language.title()}\n"
