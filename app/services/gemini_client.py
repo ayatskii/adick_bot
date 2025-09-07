@@ -202,7 +202,8 @@ JSON RESPONSE:"""
                 if not raw_response:
                     return {"success": False, "error": "Empty response text from Gemini API"}
                     
-                logger.debug(f"Raw response: {raw_response[:100]}...")
+                # Log more details for debugging
+                logger.info(f"Raw response (first 200 chars): {raw_response[:200]}...")
                 
             except Exception as parse_error:
                 logger.error(f"Error parsing Gemini response: {parse_error}")
@@ -256,7 +257,20 @@ JSON RESPONSE:"""
         
         cleaned = response_text.strip()
         
-        # Remove prefixes
+        # Handle API response structure artifacts
+        if 'role: "model"' in cleaned:
+            # This looks like a raw API response, try to extract just the text
+            lines = cleaned.split('\n')
+            # Find lines that look like actual corrected text (not metadata)
+            text_lines = []
+            for line in lines:
+                line = line.strip()
+                if line and not line.startswith('role:') and not line.startswith('{') and not line.startswith('}'):
+                    text_lines.append(line)
+            if text_lines:
+                cleaned = ' '.join(text_lines)
+        
+        # Remove common prefixes that the AI might add
         for prefix in prefixes_to_remove:
             if cleaned.startswith(prefix):
                 cleaned = cleaned[len(prefix):].strip()
@@ -269,6 +283,12 @@ JSON RESPONSE:"""
         
         # Remove markdown formatting if present
         cleaned = cleaned.replace("**", "").replace("*", "")
+        
+        # Check if the result is just metadata or empty
+        if not cleaned or cleaned.lower().startswith('role:') or len(cleaned.strip()) < 10:
+            # If we got metadata or very short response, it's likely an error
+            # Return a message indicating grammar check wasn't successful
+            return "Grammar check unavailable - original text preserved"
         
         return cleaned
     
