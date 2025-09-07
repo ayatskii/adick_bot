@@ -9,6 +9,7 @@ from typing import Dict, Any, Optional, List
 from pathlib import Path
 import httpx
 import requests
+
 try:
     # Modern ElevenLabs API (v1.0+)
     from elevenlabs import generate, save, voices, set_api_key
@@ -30,6 +31,7 @@ except ImportError:
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
 
 class ElevenLabsClient:
     """
@@ -185,10 +187,6 @@ class ElevenLabsClient:
             logger.error(f"Unexpected error during transcription: {e}", exc_info=True)
             return {"success": False, "error": f"Transcription failed: {str(e)}"}
     
-    def _transcribe_sync_BACKUP(self, file_path: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """BACKUP - will be replaced"""
-        pass
-        
     def _transcribe_sync(self, file_path: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
         Synchronous transcription method (called from thread executor)
@@ -200,9 +198,6 @@ class ElevenLabsClient:
         Returns:
             Transcription result dictionary or None if failed
         """
-        # Simple implementation - just use the HTTP fallback method
-        logger.info("Using HTTP fallback method for transcription")
-        return self._transcribe_with_requests(file_path, params)
         try:
             with open(file_path, "rb") as audio_file:
                 # Handle different API versions
@@ -241,7 +236,7 @@ class ElevenLabsClient:
                     logger.info(f"Client method failed ({e}), using HTTP fallback")
                     return self._transcribe_with_requests(file_path, params)
                 
-                # If we get here, the API call was successful, process the response
+                # Process the response
                 if hasattr(response, 'text'):
                     text = response.text
                 elif isinstance(response, dict):
@@ -249,70 +244,13 @@ class ElevenLabsClient:
                 else:
                     text = str(response)
                 
-                return {
+                # Extract additional data if available
+                result = {
                     "text": text,
                     "language": "unknown", 
                     "confidence": 1.0,
                     "detected_language": "unknown"
                 }
-                
-        except Exception as e:
-            logger.error(f"Sync transcription error: {e}")
-            return None
-    
-    async def transcribe_with_retry(
-        self, 
-        file_path: str, 
-        language_code: Optional[str] = None,
-        max_retries: int = 3,
-        retry_delay: float = 1.0
-    ) -> Dict[str, Any]:
-        """
-        Transcribe with intelligent retry logic and exponential backoff
-        """
-        # Simple implementation using the main transcription method
-        return await self.transcribe_audio(file_path, language_code)
-    
-    # The rest of the methods follow below...
-                            logger.info(f"Response headers: {dict(response.headers)}")
-                            if response.status_code != 200:
-                                logger.error(f"Response content: {response.text}")
-                                # Try to parse error message
-                                try:
-                                    error_data = response.json()
-                                    logger.error(f"Parsed error: {error_data}")
-                                except:
-                                    pass
-                            
-                            response.raise_for_status()
-                            response = response.json()
-                            break  # Success, exit the loop
-                            
-                        except requests.exceptions.RequestException as e:
-                            last_error = e
-                            logger.warning(f"Endpoint {endpoint_url} failed: {e}")
-                            continue
-                    
-                    # If all endpoints failed, raise the last error
-                    if last_error:
-                        raise last_error
-                
-                # Extract relevant data from response
-                # Handle both object and dict responses
-                if isinstance(response, dict):
-                    # Direct API response (dict)
-                    result = {
-                        "text": response.get('text', ''),
-                        "language": response.get('detected_language', 'unknown'),
-                        "confidence": response.get('confidence', 0.0),
-                    }
-                else:
-                    # Object response
-                    result = {
-                        "text": getattr(response, 'text', ''),
-                        "language": getattr(response, 'detected_language', 'unknown'),
-                        "confidence": getattr(response, 'confidence', 0.0),
-                    }
                 
                 # Extract speaker information if available
                 speakers_data = None
@@ -323,10 +261,8 @@ class ElevenLabsClient:
                 
                 if speakers_data:
                     if isinstance(speakers_data, list):
-                        # Dict response format
                         result["speakers"] = speakers_data
                     else:
-                        # Object response format
                         result["speakers"] = [
                             {
                                 "speaker_id": speaker.id,
@@ -351,10 +287,8 @@ class ElevenLabsClient:
                 
                 if words_data:
                     if isinstance(words_data, list):
-                        # Dict response format
                         result["timestamps"] = words_data
                     else:
-                        # Object response format
                         result["timestamps"] = [
                             {
                                 "word": word.text,
@@ -374,10 +308,8 @@ class ElevenLabsClient:
                 
                 if events_data:
                     if isinstance(events_data, list):
-                        # Dict response format
                         result["audio_events"] = events_data
                     else:
-                        # Object response format
                         result["audio_events"] = [
                             {
                                 "type": event.type,
@@ -392,7 +324,83 @@ class ElevenLabsClient:
                 
         except Exception as e:
             logger.error(f"Sync transcription error: {e}")
-            raise e
+            return None
+    
+    def _transcribe_with_requests(self, file_path: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Simple HTTP-based transcription fallback method
+        
+        Args:
+            file_path: Path to audio file
+            params: Transcription parameters
+            
+        Returns:
+            Transcription result dictionary or None if failed
+        """
+        try:
+            # List of possible endpoints to try
+            endpoints = [
+                "https://api.elevenlabs.io/v1/speech-to-text",
+                "https://api.elevenlabs.io/v1/scribe"
+            ]
+            
+            last_error = None
+            
+            for endpoint_url in endpoints:
+                try:
+                    with open(file_path, "rb") as audio_file:
+                        headers = {
+                            "xi-api-key": settings.elevenlabs_api_key
+                        }
+                        
+                        files = {
+                            "file": ("audio.ogg", audio_file, "audio/ogg")
+                        }
+                        
+                        data = {
+                            "model_id": params.get("model_id", self.model_id)
+                        }
+                        
+                        # Add language code if specified
+                        if params.get("language_code") and params["language_code"] != "auto":
+                            data["language_code"] = params["language_code"]
+                        
+                        logger.info(f"Making HTTP request to {endpoint_url}")
+                        response = requests.post(endpoint_url, headers=headers, files=files, data=data, timeout=30)
+                        
+                        if response.status_code != 200:
+                            logger.error(f"Response content: {response.text}")
+                            # Try to parse error message
+                            try:
+                                error_data = response.json()
+                                logger.error(f"Parsed error: {error_data}")
+                            except:
+                                pass
+                        
+                        response.raise_for_status()
+                        response_data = response.json()
+                        
+                        return {
+                            "text": response_data.get("text", ""),
+                            "language": response_data.get("language", "unknown"),
+                            "confidence": response_data.get("confidence", 0.0),
+                            "detected_language": response_data.get("detected_language", "unknown")
+                        }
+                        
+                except requests.exceptions.RequestException as e:
+                    last_error = e
+                    logger.warning(f"Endpoint {endpoint_url} failed: {e}")
+                    continue
+            
+            # If all endpoints failed, raise the last error
+            if last_error:
+                raise last_error
+            
+            return None
+                    
+        except Exception as e:
+            logger.error(f"HTTP fallback transcription failed: {e}")
+            return None
     
     async def transcribe_with_retry(
         self, 
@@ -443,7 +451,7 @@ class ElevenLabsClient:
                 
                 if attempt < max_retries:
                     # Exponential backoff with jitter
-                    delay = retry_delay * (2 ** attempt) + (asyncio.get_event_loop().time() % 1)
+                    delay = retry_delay * (2 ** attempt) + (time.time() % 1)
                     logger.warning(f"Attempt {attempt + 1} failed: {last_error}. Retrying in {delay:.1f}s...")
                     await asyncio.sleep(delay)
                 
@@ -569,59 +577,6 @@ class ElevenLabsClient:
             "nr": "Ndebele",
         }
     
-    def _transcribe_with_requests(self, file_path: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """
-        Simple HTTP-based transcription fallback method
-        
-        Args:
-            file_path: Path to audio file
-            params: Transcription parameters
-            
-        Returns:
-            Transcription result dictionary or None if failed
-        """
-        try:
-            import requests
-            
-            with open(file_path, "rb") as audio_file:
-                # ElevenLabs speech-to-text API endpoint
-                url = "https://api.elevenlabs.io/v1/speech-to-text"
-                
-                headers = {
-                    "xi-api-key": settings.elevenlabs_api_key
-                }
-                
-                files = {
-                    "file": ("audio.ogg", audio_file, "audio/ogg")
-                }
-                
-                data = {
-                    "model_id": params.get("model_id", self.model_id)
-                }
-                
-                # Add language code if specified
-                if params.get("language_code") and params["language_code"] != "auto":
-                    data["language_code"] = params["language_code"]
-                
-                logger.info(f"Making HTTP request to {url}")
-                response = requests.post(url, headers=headers, files=files, data=data)
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    return {
-                        "text": result.get("text", ""),
-                        "language": result.get("language", "unknown"),
-                        "confidence": result.get("confidence", 0.0),
-                        "detected_language": result.get("detected_language", "unknown")
-                    }
-                else:
-                    logger.error(f"HTTP request failed: {response.status_code} - {response.text}")
-                    return None
-                    
-        except Exception as e:
-            logger.error(f"HTTP fallback transcription failed: {e}")
-            return None
-
     async def check_api_health(self) -> Dict[str, Any]:
         """
         Check ElevenLabs API health and account status
@@ -630,21 +585,44 @@ class ElevenLabsClient:
             Dictionary with health status and account information
         """
         try:
-            # Get user information (requires valid API key)
-            user_info = await asyncio.get_event_loop().run_in_executor(
-                None, 
-                lambda: self.client.user.get()
-            )
-            
-            return {
-                "healthy": True,
-                "api_accessible": True,
-                "subscription": getattr(user_info, 'subscription', 'unknown'),
-                "character_limit": getattr(user_info, 'character_limit', 0),
-                "character_count": getattr(user_info, 'character_count', 0),
-                "can_use_instant_voice_cloning": getattr(user_info, 'can_use_instant_voice_cloning', False),
-                "model": self.model_id
-            }
+            # Try to make a simple API request to check connectivity
+            if self.client and hasattr(self.client, 'user') and hasattr(self.client.user, 'get'):
+                user_info = await asyncio.get_event_loop().run_in_executor(
+                    None, 
+                    lambda: self.client.user.get()
+                )
+                
+                return {
+                    "healthy": True,
+                    "api_accessible": True,
+                    "subscription": getattr(user_info, 'subscription', 'unknown'),
+                    "character_limit": getattr(user_info, 'character_limit', 0),
+                    "character_count": getattr(user_info, 'character_count', 0),
+                    "can_use_instant_voice_cloning": getattr(user_info, 'can_use_instant_voice_cloning', False),
+                    "model": self.model_id
+                }
+            else:
+                # Fallback: try a simple HTTP request
+                headers = {"xi-api-key": settings.elevenlabs_api_key}
+                response = requests.get("https://api.elevenlabs.io/v1/user", headers=headers, timeout=10)
+                
+                if response.status_code == 200:
+                    user_data = response.json()
+                    return {
+                        "healthy": True,
+                        "api_accessible": True,
+                        "subscription": user_data.get('subscription', 'unknown'),
+                        "character_limit": user_data.get('character_limit', 0),
+                        "character_count": user_data.get('character_count', 0),
+                        "model": self.model_id
+                    }
+                else:
+                    return {
+                        "healthy": False,
+                        "api_accessible": False,
+                        "error": f"API returned status {response.status_code}",
+                        "model": self.model_id
+                    }
             
         except Exception as e:
             logger.error(f"ElevenLabs health check failed: {e}")
