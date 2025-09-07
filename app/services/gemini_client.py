@@ -216,6 +216,32 @@ JSON RESPONSE:"""
                     
                 if not raw_response:
                     return {"success": False, "error": "Empty response text from Gemini API"}
+                
+                # Clean up response that contains role metadata
+                if raw_response.startswith('role: "model"'):
+                    # Extract just the text content after the role metadata
+                    lines = raw_response.split('\n')
+                    content_lines = []
+                    found_content = False
+                    for line in lines:
+                        line = line.strip()
+                        if line.startswith('text:') or found_content:
+                            if line.startswith('text:'):
+                                # Remove 'text: "' prefix and handle the content
+                                text_content = line[5:].strip()
+                                if text_content.startswith('"'):
+                                    text_content = text_content[1:]
+                                content_lines.append(text_content)
+                                found_content = True
+                            elif line and not line.startswith('role:'):
+                                content_lines.append(line)
+                    
+                    if content_lines:
+                        # Join and clean up the content
+                        raw_response = '\n'.join(content_lines).strip()
+                        # Remove trailing quote if present
+                        if raw_response.endswith('"'):
+                            raw_response = raw_response[:-1]
                     
                 # Log more details for debugging
                 logger.info(f"Raw response (first 200 chars): {raw_response[:200]}...")
@@ -279,10 +305,27 @@ JSON RESPONSE:"""
             lines = cleaned.split('\n')
             # Find lines that look like actual corrected text (not metadata)
             text_lines = []
+            found_text_section = False
             for line in lines:
                 line = line.strip()
-                if line and not line.startswith('role:') and not line.startswith('{') and not line.startswith('}'):
+                if line.startswith('text:'):
+                    # Extract content after 'text: "'
+                    text_content = line[5:].strip()
+                    if text_content.startswith('"'):
+                        text_content = text_content[1:]
+                    if text_content.endswith('"'):
+                        text_content = text_content[:-1]
+                    text_lines.append(text_content)
+                    found_text_section = True
+                elif found_text_section and line and not line.startswith('role:') and not line.startswith('{') and not line.startswith('}'):
+                    # Continue collecting text lines until we hit another metadata section
+                    if line.endswith('"'):
+                        line = line[:-1]
                     text_lines.append(line)
+                elif found_text_section and (line.startswith('role:') or not line):
+                    # End of text section
+                    break
+            
             if text_lines:
                 cleaned = ' '.join(text_lines)
         
@@ -326,7 +369,10 @@ JSON RESPONSE:"""
             patterns = [
                 r'"correctedtext":\s*"([^"]*)"',
                 r'"corrected_text":\s*"([^"]*)"',
-                r'"corrected":\s*"([^"]*)"'
+                r'"corrected":\s*"([^"]*)"',
+                # Handle multiline JSON with escaped quotes
+                r'"correctedtext":\s*"([^"\\]*(?:\\.[^"\\]*)*)"',
+                r'"corrected_text":\s*"([^"\\]*(?:\\.[^"\\]*)*)"'
             ]
             
             for pattern in patterns:
