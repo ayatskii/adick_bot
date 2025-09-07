@@ -70,11 +70,19 @@ class GeminiClient:
             safety_settings=[
                 {
                     "category": "HARM_CATEGORY_HARASSMENT",
-                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                    "threshold": "BLOCK_ONLY_HIGH"
                 },
                 {
                     "category": "HARM_CATEGORY_HATE_SPEECH", 
-                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                    "threshold": "BLOCK_ONLY_HIGH"
+                },
+                {
+                    "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                    "threshold": "BLOCK_ONLY_HIGH"
+                },
+                {
+                    "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                    "threshold": "BLOCK_ONLY_HIGH"
                 }
             ]
         )
@@ -296,6 +304,10 @@ JSON RESPONSE:"""
             logger.info(f"Starting structured grammar check for text: '{text[:50]}{'...' if len(text) > 50 else ''}'")
             start_time = time.time()
             
+            # Temporarily enable debug logging for structured output troubleshooting
+            current_level = logger.level
+            logger.setLevel(logging.DEBUG)
+            
             # Create optimized prompt for structured output
             prompt = self._create_structured_grammar_prompt(text.strip(), context)
             
@@ -320,25 +332,51 @@ JSON RESPONSE:"""
             if not response:
                 return {"success": False, "error": "No response from Gemini API"}
             
-            # Extract and parse structured response
+            # Extract and parse structured response with enhanced debugging
             try:
-                # Get the raw response text
+                raw_response = ""
+                
+                # Debug the response structure
+                logger.debug(f"Response type: {type(response)}")
+                logger.debug(f"Response has candidates: {hasattr(response, 'candidates')}")
+                
+                # Get the raw response text with more robust extraction
                 if hasattr(response, 'candidates') and response.candidates and len(response.candidates) > 0:
                     candidate = response.candidates[0]
+                    logger.debug(f"Candidate type: {type(candidate)}")
+                    
+                    # Check for finish_reason or safety issues
+                    if hasattr(candidate, 'finish_reason'):
+                        logger.debug(f"Candidate finish_reason: {candidate.finish_reason}")
+                        if candidate.finish_reason and candidate.finish_reason != "STOP":
+                            logger.warning(f"Candidate finished with reason: {candidate.finish_reason}")
+                    
                     if hasattr(candidate, 'content') and candidate.content:
                         if hasattr(candidate.content, 'parts') and candidate.content.parts and len(candidate.content.parts) > 0:
-                            raw_response = candidate.content.parts[0].text.strip()
+                            part = candidate.content.parts[0]
+                            if hasattr(part, 'text') and part.text:
+                                raw_response = part.text.strip()
+                                logger.debug(f"Extracted text from parts[0]: {len(raw_response)} chars")
+                            else:
+                                logger.warning("Part has no text attribute or text is empty")
                         else:
                             raw_response = str(candidate.content).strip()
+                            logger.debug(f"Used candidate.content string: {len(raw_response)} chars")
                     else:
                         raw_response = str(candidate).strip()
+                        logger.debug(f"Used candidate string: {len(raw_response)} chars")
                 elif hasattr(response, 'text'):
                     raw_response = response.text.strip()
+                    logger.debug(f"Used response.text: {len(raw_response)} chars")
                 else:
                     raw_response = str(response).strip()
+                    logger.debug(f"Used response string: {len(raw_response)} chars")
+                
+                logger.debug(f"Raw response preview: {raw_response[:100]}...")
                 
                 if not raw_response:
-                    return {"success": False, "error": "Empty response from Gemini API"}
+                    logger.error("Empty response from Gemini API - this might indicate content filtering or API issues")
+                    return {"success": False, "error": "Empty response from Gemini API - possible content filtering"}
                 
                 # Parse the structured JSON response
                 try:
@@ -394,6 +432,10 @@ JSON RESPONSE:"""
                 "error": f"Grammar check failed: {str(e)}",
                 "original_text": text
             }
+        finally:
+            # Restore original logging level
+            if 'current_level' in locals():
+                logger.setLevel(current_level)
     
     async def _fallback_to_legacy_parsing(self, text: str, raw_response: str, processing_time: float) -> Dict[str, Any]:
         """
