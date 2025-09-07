@@ -89,6 +89,57 @@ class GeminiClient:
         
         logger.info(f"Gemini client initialized with model: {settings.gemini_model}")
     
+    def _create_gemini_schema(self) -> Dict[str, Any]:
+        """
+        Create a Gemini API compatible schema for structured output
+        
+        Returns:
+            Schema dictionary compatible with Gemini API requirements
+        """
+        return {
+            "type": "object",
+            "properties": {
+                "corrected_text": {
+                    "type": "string",
+                    "description": "The grammatically corrected version of the input text"
+                },
+                "grammar_issues": {
+                    "type": "array",
+                    "description": "List of grammar, spelling, and punctuation issues found",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "issue": {
+                                "type": "string",
+                                "description": "Brief description of the grammar issue"
+                            },
+                            "explanation": {
+                                "type": "string",
+                                "description": "Detailed explanation of why this is an issue and how to fix it"
+                            }
+                        },
+                        "required": ["issue", "explanation"]
+                    }
+                },
+                "speaking_tips": {
+                    "type": "array",
+                    "description": "List of specific suggestions for improving speaking and communication skills",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "confidence_score": {
+                    "type": "number",
+                    "description": "Confidence level of the grammar corrections (0.0 to 1.0)"
+                },
+                "improvements_made": {
+                    "type": "integer",
+                    "description": "Number of grammar improvements made to the original text"
+                }
+            },
+            "required": ["corrected_text", "grammar_issues", "speaking_tips", "confidence_score", "improvements_made"]
+        }
+    
     def _create_structured_grammar_prompt(self, text: str, context: Optional[str] = None) -> str:
         """
         Create an optimized prompt for structured grammar checking
@@ -255,7 +306,7 @@ JSON RESPONSE:"""
                 "top_k": 40,
                 "max_output_tokens": 2048,
                 "response_mime_type": "application/json",
-                "response_schema": GrammarAnalysisResponse.model_json_schema()
+                "response_schema": self._create_gemini_schema()
             }
             
             # Generate response with structured output
@@ -294,22 +345,33 @@ JSON RESPONSE:"""
                     parsed_response = json.loads(raw_response)
                     analysis = GrammarAnalysisResponse(**parsed_response)
                     
-                    # Convert to output format
+                    # Convert to output format - handle both direct JSON and Pydantic objects
+                    grammar_issues_formatted = []
+                    if isinstance(parsed_response.get("grammar_issues"), list):
+                        for issue in parsed_response["grammar_issues"]:
+                            if isinstance(issue, dict):
+                                # Direct JSON format
+                                issue_text = issue.get("issue", "")
+                                explanation = issue.get("explanation", "")
+                                if issue_text and explanation:
+                                    grammar_issues_formatted.append(f"{issue_text}: {explanation}")
+                                elif issue_text:
+                                    grammar_issues_formatted.append(issue_text)
+                            else:
+                                grammar_issues_formatted.append(str(issue))
+                    
                     result = {
                         "success": True,
                         "original_text": text,
-                        "corrected_text": analysis.corrected_text,
-                        "grammar_issues": [
-                            f"{issue.issue}: {issue.explanation}" 
-                            for issue in analysis.grammar_issues
-                        ],
-                        "speaking_tips": analysis.speaking_tips,
-                        "confidence_score": analysis.confidence_score,
-                        "improvements_made": analysis.improvements_made,
+                        "corrected_text": parsed_response.get("corrected_text", text),
+                        "grammar_issues": grammar_issues_formatted,
+                        "speaking_tips": parsed_response.get("speaking_tips", []),
+                        "confidence_score": parsed_response.get("confidence_score", 0.95),
+                        "improvements_made": parsed_response.get("improvements_made", 0),
                         "processing_time": processing_time
                     }
                     
-                    logger.info(f"Structured grammar check completed in {processing_time:.2f}s with {analysis.improvements_made} improvements")
+                    logger.info(f"Structured grammar check completed in {processing_time:.2f}s with {parsed_response.get('improvements_made', 0)} improvements")
                     return result
                     
                 except json.JSONDecodeError as e:
@@ -948,7 +1010,7 @@ JSON RESPONSE:"""
                 "temperature": 0.1,
                 "max_output_tokens": 100,
                 "response_mime_type": "application/json",
-                "response_schema": GrammarAnalysisResponse.model_json_schema()
+                "response_schema": self._create_gemini_schema()
             }
             
             test_response = await self.model.generate_content_async(
