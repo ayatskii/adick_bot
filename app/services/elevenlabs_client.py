@@ -9,7 +9,23 @@ from typing import Dict, Any, Optional, List
 from pathlib import Path
 import httpx
 import requests
-from elevenlabs import ElevenLabs
+try:
+    # Modern ElevenLabs API (v1.0+)
+    from elevenlabs import generate, save, voices, set_api_key
+    from elevenlabs.api import speech_to_text
+    ElevenLabs = None  # Will use function-based API
+except ImportError:
+    try:
+        # Try older client-based API
+        from elevenlabs.client import ElevenLabs
+    except ImportError:
+        try:
+            # Try even older API structure
+            from elevenlabs import ElevenLabs
+        except ImportError:
+            # Final fallback
+            import elevenlabs
+            ElevenLabs = elevenlabs
 
 from app.config import settings
 
@@ -34,14 +50,25 @@ class ElevenLabsClient:
         if not settings.elevenlabs_api_key or settings.elevenlabs_api_key == "your_key_here":
             raise ValueError("ElevenLabs API key is required. Set ELEVENLABS_API_KEY environment variable.")
         
-        # Initialize ElevenLabs client
-        self.client = ElevenLabs(api_key=settings.elevenlabs_api_key)
+        # Initialize ElevenLabs client based on available API
+        if ElevenLabs is None:
+            # Modern function-based API
+            set_api_key(settings.elevenlabs_api_key)
+            self.client = None  # Will use function calls directly
+            self.use_modern_api = True
+        else:
+            # Legacy client-based API
+            self.client = ElevenLabs(api_key=settings.elevenlabs_api_key)
+            self.use_modern_api = False
+            
         self.model_id = settings.elevenlabs_model
         
-        # Debug: Log available methods for troubleshooting
-        logger.info(f"ElevenLabs client methods: {[attr for attr in dir(self.client) if not attr.startswith('_')]}")
-        if hasattr(self.client, 'speech_to_text'):
-            logger.info(f"speech_to_text methods: {[attr for attr in dir(self.client.speech_to_text) if not attr.startswith('_')]}")
+        # Debug: Log API type for troubleshooting
+        logger.info(f"Using {'modern function-based' if self.use_modern_api else 'legacy client-based'} ElevenLabs API")
+        if not self.use_modern_api and self.client:
+            logger.info(f"Client methods: {[attr for attr in dir(self.client) if not attr.startswith('_')]}")
+            if hasattr(self.client, 'speech_to_text'):
+                logger.info(f"speech_to_text methods: {[attr for attr in dir(self.client.speech_to_text) if not attr.startswith('_')]}")
         
         # Rate limiting configuration
         self.requests_per_minute = 60  # Adjust based on your plan
@@ -171,38 +198,28 @@ class ElevenLabsClient:
         """
         try:
             with open(file_path, "rb") as audio_file:
-                # Call ElevenLabs transcription API - updated for v2.14.0
-                # The new API structure uses speech_to_text as a client, not a method
-                # Log what methods are actually available during transcription
-                logger.info(f"ElevenLabs client has speech_to_text: {hasattr(self.client, 'speech_to_text')}")
-                if hasattr(self.client, 'speech_to_text'):
-                    speech_to_text_methods = [attr for attr in dir(self.client.speech_to_text) if not attr.startswith('_')]
-                    logger.info(f"speech_to_text methods: {speech_to_text_methods}")
-                
-                try:
-                    # Try the v2.14.0+ API pattern - speech_to_text is a client
+                # Handle different API versions
+                if self.use_modern_api:
+                    # Modern function-based API
+                    logger.info("Using modern ElevenLabs function-based API")
+                    try:
+                        response = speech_to_text(
+                            audio=audio_file,
+                            model_id=params.get("model_id", self.model_id)
+                        )
+                    except NameError:
+                        # speech_to_text function not available, try different approach
+                        logger.warning("speech_to_text function not available, falling back to requests")
+                        return self._transcribe_with_requests(file_path, params)
+                else:
+                    # Legacy client-based API
+                    logger.info("Using legacy ElevenLabs client-based API")
                     if hasattr(self.client, 'speech_to_text') and hasattr(self.client.speech_to_text, 'convert'):
-                        logger.info("Using speech_to_text.convert method")
-                        # Try different parameter combinations for convert method
-                        import inspect
-                        sig = inspect.signature(self.client.speech_to_text.convert)
-                        logger.info(f"convert method signature: {sig}")
-                        
-                        # Now we know the correct parameters from the error messages
                         response = self.client.speech_to_text.convert(
                             file=audio_file,
                             model_id=params.get("model_id", self.model_id)
                         )
-                    # Try speech_to_text.__call__ (if it's callable)
-                    elif hasattr(self.client, 'speech_to_text') and callable(self.client.speech_to_text):
-                        logger.info("Using speech_to_text as callable")
-                        response = self.client.speech_to_text(
-                            audio=audio_file,
-                            **params
-                        )
-                    # Try direct transcribe method
                     elif hasattr(self.client, 'transcribe'):
-                        logger.info("Using direct transcribe method")
                         response = self.client.transcribe(
                             audio=audio_file,
                             **params
@@ -210,7 +227,7 @@ class ElevenLabsClient:
                     else:
                         # Fallback to direct API call
                         logger.info("No client methods found, using direct API call")
-                        raise AttributeError("No transcription method found")
+                        return self._transcribe_with_requests(file_path, params)
                         
                 except (AttributeError, TypeError) as e:
                     logger.info(f"Client method failed ({e}), trying direct API call")
@@ -549,6 +566,59 @@ class ElevenLabsClient:
             "nr": "Ndebele",
         }
     
+    def _transcribe_with_requests(self, file_path: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Simple HTTP-based transcription fallback method
+        
+        Args:
+            file_path: Path to audio file
+            params: Transcription parameters
+            
+        Returns:
+            Transcription result dictionary or None if failed
+        """
+        try:
+            import requests
+            
+            with open(file_path, "rb") as audio_file:
+                # ElevenLabs speech-to-text API endpoint
+                url = "https://api.elevenlabs.io/v1/speech-to-text"
+                
+                headers = {
+                    "xi-api-key": settings.elevenlabs_api_key
+                }
+                
+                files = {
+                    "file": ("audio.ogg", audio_file, "audio/ogg")
+                }
+                
+                data = {
+                    "model_id": params.get("model_id", self.model_id)
+                }
+                
+                # Add language code if specified
+                if params.get("language_code") and params["language_code"] != "auto":
+                    data["language_code"] = params["language_code"]
+                
+                logger.info(f"Making HTTP request to {url}")
+                response = requests.post(url, headers=headers, files=files, data=data)
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    return {
+                        "text": result.get("text", ""),
+                        "language": result.get("language", "unknown"),
+                        "confidence": result.get("confidence", 0.0),
+                        "detected_language": result.get("detected_language", "unknown")
+                    }
+                else:
+                    logger.error(f"HTTP request failed: {response.status_code} - {response.text}")
+                    return None
+                    
+        except Exception as e:
+            logger.error(f"HTTP fallback transcription failed: {e}")
+            return None
+
     async def check_api_health(self) -> Dict[str, Any]:
         """
         Check ElevenLabs API health and account status
