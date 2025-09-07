@@ -311,15 +311,29 @@ JSON RESPONSE:"""
             # Create optimized prompt for structured output
             prompt = self._create_structured_grammar_prompt(text.strip(), context)
             
-            # Generation config with structured output
-            generation_config = {
-                "temperature": 0.1,
-                "top_p": 0.8,
-                "top_k": 40,
-                "max_output_tokens": 2048,
-                "response_mime_type": "application/json",
-                "response_schema": self._create_gemini_schema()
-            }
+            # Try structured output first, with fallback to JSON-only mode
+            try:
+                # Generation config with structured output
+                generation_config = {
+                    "temperature": 0.1,
+                    "top_p": 0.8,
+                    "top_k": 40,
+                    "max_output_tokens": 2048,
+                    "response_mime_type": "application/json",
+                    "response_schema": self._create_gemini_schema()
+                }
+                
+                logger.debug("Attempting structured output with schema")
+            except Exception as schema_error:
+                logger.warning(f"Schema creation failed, falling back to JSON-only mode: {schema_error}")
+                # Fallback to JSON without schema
+                generation_config = {
+                    "temperature": 0.1,
+                    "top_p": 0.8,
+                    "top_k": 40,
+                    "max_output_tokens": 2048,
+                    "response_mime_type": "application/json"
+                }
             
             # Generate response with structured output
             response = await self.model.generate_content_async(
@@ -348,8 +362,27 @@ JSON RESPONSE:"""
                     # Check for finish_reason or safety issues
                     if hasattr(candidate, 'finish_reason'):
                         logger.debug(f"Candidate finish_reason: {candidate.finish_reason}")
-                        if candidate.finish_reason and candidate.finish_reason != "STOP":
-                            logger.warning(f"Candidate finished with reason: {candidate.finish_reason}")
+                        # Map finish reason codes to human readable messages
+                        finish_reasons = {
+                            1: "STOP (normal completion)",
+                            2: "MAX_TOKENS (length limit)",
+                            3: "SAFETY (content filtered)",
+                            4: "RECITATION (copyright concerns)",
+                            5: "OTHER (unknown issue)"
+                        }
+                        reason_code = candidate.finish_reason
+                        reason_text = finish_reasons.get(reason_code, f"Unknown ({reason_code})")
+                        
+                        if reason_code == 3:  # SAFETY
+                            logger.warning(f"Content filtered by safety system (reason: {reason_code} - SAFETY)")
+                            return {"success": False, "error": "Content filtered by safety system - using fallback"}
+                        elif reason_code == 2:  # MAX_TOKENS - might be schema complexity issue
+                            logger.warning(f"Response truncated due to length limit - this might be schema-related")
+                            # Continue processing but note the issue
+                        elif reason_code != 1:  # Not STOP
+                            logger.warning(f"Candidate finished with reason: {reason_code} - {reason_text}")
+                            if reason_code in [4, 5]:  # RECITATION or OTHER
+                                return {"success": False, "error": f"API issue: {reason_text} - using fallback"}
                     
                     if hasattr(candidate, 'content') and candidate.content:
                         if hasattr(candidate.content, 'parts') and candidate.content.parts and len(candidate.content.parts) > 0:
@@ -888,6 +921,86 @@ JSON RESPONSE:"""
                 "text_quality": "processed_with_fallback"
             }
     
+    async def check_grammar_json_only(self, text: str, context: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Check grammar using JSON output without schema constraints
+        This is a middle ground between structured output and legacy parsing
+        """
+        try:
+            if not text or not text.strip():
+                return {"success": False, "error": "Empty text provided"}
+            
+            logger.info(f"Starting JSON-only grammar check for text: '{text[:50]}{'...' if len(text) > 50 else ''}'")
+            start_time = time.time()
+            
+            # Create prompt that requests JSON without enforcing schema
+            prompt = f"""You are a professional grammar checker. Analyze this text and provide corrections.
+
+Please respond with a JSON object containing:
+- corrected_text: the corrected version
+- confidence_score: your confidence (0.0 to 1.0)
+- improvements_made: number of changes
+- grammar_issues: array of issue descriptions
+- speaking_tips: array of improvement suggestions
+
+Text to analyze: "{text.strip()}"
+
+Respond with valid JSON only:"""
+            
+            # Simple JSON generation without schema
+            generation_config = {
+                "temperature": 0.1,
+                "top_p": 0.8,
+                "top_k": 40,
+                "max_output_tokens": 1500,
+                "response_mime_type": "application/json"
+            }
+            
+            response = await self.model.generate_content_async(
+                prompt,
+                generation_config=generation_config
+            )
+            
+            processing_time = time.time() - start_time
+            
+            if not response or not response.candidates:
+                return {"success": False, "error": "No response from Gemini API"}
+            
+            candidate = response.candidates[0]
+            if hasattr(candidate, 'finish_reason') and candidate.finish_reason != 1:
+                logger.warning(f"JSON-only check finished with reason: {candidate.finish_reason}")
+                return {"success": False, "error": "API response issue"}
+            
+            # Extract response text
+            raw_response = ""
+            if candidate.content and candidate.content.parts:
+                raw_response = candidate.content.parts[0].text.strip()
+            
+            if not raw_response:
+                return {"success": False, "error": "Empty response from JSON-only check"}
+            
+            # Parse JSON response
+            try:
+                parsed = json.loads(raw_response)
+                return {
+                    "success": True,
+                    "original_text": text,
+                    "corrected_text": parsed.get("corrected_text", text),
+                    "confidence_score": parsed.get("confidence_score", 0.9),
+                    "improvements_made": parsed.get("improvements_made", 0),
+                    "grammar_issues": parsed.get("grammar_issues", []),
+                    "speaking_tips": parsed.get("speaking_tips", []),
+                    "processing_time": processing_time,
+                    "method_used": "json_only"
+                }
+            except json.JSONDecodeError as e:
+                logger.warning(f"JSON-only parsing failed: {e}")
+                return {"success": False, "error": "JSON parsing failed"}
+                
+        except Exception as e:
+            logger.error(f"JSON-only grammar check error: {e}")
+            return {"success": False, "error": str(e)}
+
     async def check_grammar_with_retry(
         self, 
         text: str, 
@@ -915,17 +1028,24 @@ JSON RESPONSE:"""
             try:
                 logger.debug(f"Grammar check attempt {attempt + 1}/{max_retries + 1}")
                 
-                # Use structured approach by default, fallback to legacy if needed
-                if use_structured and attempt < 2:  # Try structured for first 2 attempts
+                # Try different approaches in order of preference
+                if use_structured and attempt == 0:
+                    # First try: structured output with schema
                     result = await self.check_grammar_structured(text, context)
+                elif attempt == 1:
+                    # Second try: JSON without schema
+                    result = await self.check_grammar_json_only(text, context)
                 else:
+                    # Final try: legacy parsing
                     result = await self.check_grammar(text, context)
                 
                 if result.get("success"):
                     if attempt > 0:
                         logger.info(f"Grammar check succeeded after {attempt + 1} attempts")
                     result["retry_attempts"] = attempt
-                    result["method_used"] = "structured" if (use_structured and attempt < 2) else "legacy"
+                    if not result.get("method_used"):
+                        method_map = {0: "structured", 1: "json_only", 2: "legacy"}
+                        result["method_used"] = method_map.get(attempt, "legacy")
                     return result
                 
                 last_error = result.get("error", "Unknown error")
