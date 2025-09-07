@@ -173,15 +173,40 @@ JSON RESPONSE:"""
             
             processing_time = time.time() - start_time
             
-            if not response or not response.candidates or len(response.candidates) == 0:
-                return {"success": False, "error": "Empty response from Gemini API"}
+            if not response:
+                return {"success": False, "error": "No response from Gemini API"}
             
-            # Extract response text safely
-            candidate = response.candidates[0]
-            if not candidate.content or not candidate.content.parts or len(candidate.content.parts) == 0:
-                return {"success": False, "error": "Invalid response structure from Gemini API"}
+            # Debug: Log response structure
+            logger.debug(f"Response type: {type(response)}")
+            logger.debug(f"Response has candidates: {hasattr(response, 'candidates')}")
             
-            raw_response = candidate.content.parts[0].text.strip()
+            # More robust response extraction
+            try:
+                if hasattr(response, 'candidates') and response.candidates and len(response.candidates) > 0:
+                    candidate = response.candidates[0]
+                    if hasattr(candidate, 'content') and candidate.content:
+                        if hasattr(candidate.content, 'parts') and candidate.content.parts and len(candidate.content.parts) > 0:
+                            raw_response = candidate.content.parts[0].text.strip()
+                        else:
+                            # Try direct text access
+                            raw_response = str(candidate.content).strip()
+                    else:
+                        raw_response = str(candidate).strip()
+                elif hasattr(response, 'text'):
+                    # Direct text response
+                    raw_response = response.text.strip()
+                else:
+                    # Last resort - convert to string
+                    raw_response = str(response).strip()
+                    
+                if not raw_response:
+                    return {"success": False, "error": "Empty response text from Gemini API"}
+                    
+                logger.debug(f"Raw response: {raw_response[:100]}...")
+                
+            except Exception as parse_error:
+                logger.error(f"Error parsing Gemini response: {parse_error}")
+                return {"success": False, "error": f"Failed to parse Gemini response: {parse_error}"}
             
             if advanced_mode:
                 # Parse JSON response for advanced mode
