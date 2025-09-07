@@ -58,9 +58,6 @@ RUN mkdir -p uploads logs tmp && \
     chown -R appuser:appuser uploads logs tmp && \
     chmod 755 uploads logs tmp
 
-# Verify the app module structure
-RUN python -c "import sys; print('Python path:', sys.path); import app.config; print('app.config imported successfully')"
-
 # Switch to non-root user
 USER appuser
 
