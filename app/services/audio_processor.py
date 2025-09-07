@@ -102,15 +102,12 @@ class AudioProcessor:
                 "success": True,
                 "original_text": original_text,
                 "corrected_text": corrected_text,
-                "language": transcription_result.get("language", "unknown"),
-                "processing_time": transcription_result.get("processing_time", 0),
-                "file_info": {
-                    "size_mb": validation_result.get("size_mb", 0),
-                    "extension": validation_result.get("extension", "unknown")
-                },
-                "transcription_confidence": transcription_result.get("confidence", 0),
-                "grammar_check_success": grammar_result.get("success", False)
             }
+            
+            # Add Gemini grammar analysis data if available
+            if grammar_result.get("success"):
+                result["grammar_issues"] = grammar_result.get("grammar_issues", [])
+                result["speaking_tips"] = grammar_result.get("speaking_tips", [])
             
             # Add optional features if available
             if "speakers" in transcription_result:

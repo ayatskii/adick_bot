@@ -266,6 +266,13 @@ JSON RESPONSE:"""
         
         cleaned = response_text.strip()
         
+        # Check if this looks like JSON - if so, reject it for simple cleaning
+        if (cleaned.startswith('{') and cleaned.endswith('}')) or \
+           ('```json' in cleaned) or \
+           ('"correctedtext"' in cleaned and '"grammarissues"' in cleaned):
+            logger.warning("Response appears to be JSON format, cannot clean as simple text")
+            return "Grammar check unavailable - original text preserved"
+        
         # Handle API response structure artifacts
         if 'role: "model"' in cleaned:
             # This looks like a raw API response, try to extract just the text
@@ -300,6 +307,50 @@ JSON RESPONSE:"""
             return "Grammar check unavailable - original text preserved"
         
         return cleaned
+    
+    def _extract_text_from_malformed_response(self, response_text: str, original_text: str) -> str:
+        """
+        Extract corrected text from a malformed JSON response
+        
+        Args:
+            response_text: Raw response that failed JSON parsing
+            original_text: Original text as fallback
+            
+        Returns:
+            Extracted corrected text or original text if extraction fails
+        """
+        try:
+            import re
+            
+            # Try to find text in "correctedtext" field
+            patterns = [
+                r'"correctedtext":\s*"([^"]*)"',
+                r'"corrected_text":\s*"([^"]*)"',
+                r'"corrected":\s*"([^"]*)"'
+            ]
+            
+            for pattern in patterns:
+                match = re.search(pattern, response_text, re.IGNORECASE | re.DOTALL)
+                if match:
+                    extracted = match.group(1)
+                    # Basic cleaning of escape characters
+                    extracted = extracted.replace('\\"', '"').replace('\\n', ' ').strip()
+                    if extracted and len(extracted) > 10:  # Ensure it's substantial
+                        logger.info(f"Extracted text from malformed JSON: {extracted[:100]}...")
+                        return extracted
+            
+            # If no patterns match, try to clean the simple response
+            cleaned = self._clean_simple_response(response_text)
+            if cleaned and cleaned != "Grammar check unavailable - original text preserved":
+                return cleaned
+            
+            # Final fallback
+            logger.warning("Could not extract meaningful text from malformed response, returning original")
+            return original_text
+            
+        except Exception as e:
+            logger.error(f"Error extracting text from malformed response: {e}")
+            return original_text
     
     def _parse_json_response(self, response_text: str, original_text: str, processing_time: float) -> Dict[str, Any]:
         """
@@ -342,6 +393,14 @@ JSON RESPONSE:"""
             corrected_text = (parsed.get("corrected_text") or 
                             parsed.get("correctedtext") or 
                             parsed.get("corrected") or "")
+            
+            # Debug logging to track what we extracted
+            logger.debug(f"Parsed JSON successfully. Corrected text: {corrected_text[:100] if corrected_text else 'None'}...")
+            
+            # If we didn't get corrected text, something is wrong with the JSON structure
+            if not corrected_text:
+                logger.warning(f"No corrected text found in parsed JSON. Keys available: {list(parsed.keys())}")
+                corrected_text = original_text
             
             grammar_issues = (parsed.get("grammar_issues") or 
                             parsed.get("grammarissues") or 
@@ -394,8 +453,11 @@ JSON RESPONSE:"""
             
         except json.JSONDecodeError as e:
             logger.warning(f"Failed to parse JSON response, falling back to simple parsing: {e}")
-            # Fallback to simple text parsing
-            corrected_text = self._clean_simple_response(response_text)
+            logger.debug(f"Raw response that failed to parse: {response_text[:500]}...")
+            
+            # Better fallback - try to extract text from the response even if it's malformed JSON
+            corrected_text = self._extract_text_from_malformed_response(response_text, original_text)
+            
             return {
                 "success": True,
                 "original_text": original_text,
