@@ -401,6 +401,9 @@ class TelegramAudioBot:
             if real_issues:
                 response += f"🔍 **Grammar Issues Found:**\n"
                 for i, issue in enumerate(real_issues[:3], 1):  # Limit to 3 issues
+                    # Truncate long explanations to keep response manageable
+                    if len(issue) > 200:
+                        issue = issue[:200] + "..."
                     response += f"• {issue}\n"
                 response += "\n"
         

@@ -87,9 +87,14 @@ RULES:
 
 You MUST respond with valid JSON in this exact format:
 {
-  "corrected_text": "The grammatically corrected version of the text",
-  "grammar_issues": ["List of specific grammar, spelling, or punctuation issues found"],
-  "speaking_tips": ["List of specific suggestions for improving speaking and communication"]
+  "correctedtext": "The grammatically corrected version of the text",
+  "grammarissues": [
+    {
+      "issue": "Issue title",
+      "explanation": "Detailed explanation of the grammar issue"
+    }
+  ],
+  "speakingtips": ["List of specific suggestions for improving speaking and communication"]
 }
 
 """
@@ -333,16 +338,50 @@ JSON RESPONSE:"""
             # Parse JSON
             parsed = json.loads(json_str)
             
-            # Extract required fields
-            corrected_text = parsed.get("corrected_text", "")
-            grammar_issues = parsed.get("grammar_issues", [])
-            speaking_tips = parsed.get("speaking_tips", [])
+            # Extract required fields - handle different field name variations
+            corrected_text = (parsed.get("corrected_text") or 
+                            parsed.get("correctedtext") or 
+                            parsed.get("corrected") or "")
             
-            # Ensure grammar_issues and speaking_tips are lists
+            grammar_issues = (parsed.get("grammar_issues") or 
+                            parsed.get("grammarissues") or 
+                            parsed.get("issues") or [])
+            
+            speaking_tips = (parsed.get("speaking_tips") or 
+                           parsed.get("speakingtips") or 
+                           parsed.get("tips") or [])
+            
+            # Process grammar issues - handle both simple strings and complex objects
             if isinstance(grammar_issues, str):
                 grammar_issues = [grammar_issues]
+            elif isinstance(grammar_issues, list):
+                processed_issues = []
+                for issue in grammar_issues:
+                    if isinstance(issue, dict):
+                        # Handle complex issue format with explanation
+                        issue_text = issue.get("issue", "")
+                        explanation = issue.get("explanation", "")
+                        if issue_text and explanation:
+                            processed_issues.append(f"{issue_text}: {explanation}")
+                        elif issue_text:
+                            processed_issues.append(issue_text)
+                    elif isinstance(issue, str):
+                        processed_issues.append(issue)
+                grammar_issues = processed_issues
+            
+            # Process speaking tips - handle different formats
             if isinstance(speaking_tips, str):
                 speaking_tips = [speaking_tips]
+            elif isinstance(speaking_tips, list):
+                processed_tips = []
+                for tip in speaking_tips:
+                    if isinstance(tip, dict):
+                        # Handle complex tip format
+                        tip_text = tip.get("tip", "") or tip.get("suggestion", "") or str(tip)
+                        processed_tips.append(tip_text)
+                    elif isinstance(tip, str):
+                        processed_tips.append(tip)
+                speaking_tips = processed_tips
             
             return {
                 "success": True,
