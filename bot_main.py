@@ -30,10 +30,29 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
+# Debug: Print directory structure
+print(f"Current directory: {current_dir}")
+print(f"Contents of current directory: {os.listdir(current_dir)}")
+
 # Add app directory to path if it exists
 app_dir = os.path.join(current_dir, 'app')
-if os.path.exists(app_dir) and app_dir not in sys.path:
-    sys.path.insert(0, app_dir)
+print(f"App directory path: {app_dir}")
+print(f"App directory exists: {os.path.exists(app_dir)}")
+
+if os.path.exists(app_dir):
+    print(f"Contents of app directory: {os.listdir(app_dir)}")
+    if app_dir not in sys.path:
+        sys.path.insert(0, app_dir)
+else:
+    print("App directory not found, checking alternative locations...")
+    # Check if app directory is in the parent directory
+    parent_app_dir = os.path.join(os.path.dirname(current_dir), 'app')
+    print(f"Parent app directory path: {parent_app_dir}")
+    print(f"Parent app directory exists: {os.path.exists(parent_app_dir)}")
+    if os.path.exists(parent_app_dir):
+        print(f"Contents of parent app directory: {os.listdir(parent_app_dir)}")
+        if parent_app_dir not in sys.path:
+            sys.path.insert(0, parent_app_dir)
 
 # Telegram Bot Framework
 from telegram import Update, Message, Audio, Voice, VideoNote, Document
@@ -48,14 +67,41 @@ from telegram.ext import (
 # Application Components - try different import methods
 try:
     from app.config import settings
-except ImportError:
+    print("Successfully imported app.config using normal import")
+except ImportError as e:
+    print(f"Normal import failed: {e}")
     # Fallback: try importing from the app directory directly
     import importlib.util
-    config_path = os.path.join(current_dir, 'app', 'config.py')
-    spec = importlib.util.spec_from_file_location("config", config_path)
-    config_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(config_module)
-    settings = config_module.settings
+    
+    # Try multiple possible locations for config.py
+    possible_config_paths = [
+        os.path.join(current_dir, 'app', 'config.py'),
+        os.path.join(os.path.dirname(current_dir), 'app', 'config.py'),
+        '/app/app/config.py',
+        '/app/config.py'
+    ]
+    
+    config_loaded = False
+    for config_path in possible_config_paths:
+        print(f"Trying config path: {config_path}")
+        if os.path.exists(config_path):
+            print(f"Found config file at: {config_path}")
+            try:
+                spec = importlib.util.spec_from_file_location("config", config_path)
+                config_module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(config_module)
+                settings = config_module.settings
+                config_loaded = True
+                print("Successfully loaded config using fallback method")
+                break
+            except Exception as e:
+                print(f"Failed to load config from {config_path}: {e}")
+                continue
+        else:
+            print(f"Config file not found at: {config_path}")
+    
+    if not config_loaded:
+        raise ImportError("Could not find or load config.py from any location")
 
 try:
     from app.utils.logger import setup_logging, get_logger
