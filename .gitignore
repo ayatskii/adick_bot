@@ -59,7 +59,6 @@ ENV/
 # Environment variables and secrets
 .env
 .flaskenv
-config.py
 token.txt
 secrets.json
 *.key

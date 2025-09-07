@@ -30,29 +30,10 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-# Debug: Print directory structure
-print(f"Current directory: {current_dir}")
-print(f"Contents of current directory: {os.listdir(current_dir)}")
-
 # Add app directory to path if it exists
 app_dir = os.path.join(current_dir, 'app')
-print(f"App directory path: {app_dir}")
-print(f"App directory exists: {os.path.exists(app_dir)}")
-
-if os.path.exists(app_dir):
-    print(f"Contents of app directory: {os.listdir(app_dir)}")
-    if app_dir not in sys.path:
-        sys.path.insert(0, app_dir)
-else:
-    print("App directory not found, checking alternative locations...")
-    # Check if app directory is in the parent directory
-    parent_app_dir = os.path.join(os.path.dirname(current_dir), 'app')
-    print(f"Parent app directory path: {parent_app_dir}")
-    print(f"Parent app directory exists: {os.path.exists(parent_app_dir)}")
-    if os.path.exists(parent_app_dir):
-        print(f"Contents of parent app directory: {os.listdir(parent_app_dir)}")
-        if parent_app_dir not in sys.path:
-            sys.path.insert(0, parent_app_dir)
+if os.path.exists(app_dir) and app_dir not in sys.path:
+    sys.path.insert(0, app_dir)
 
 # Telegram Bot Framework
 from telegram import Update, Message, Audio, Voice, VideoNote, Document
@@ -64,85 +45,13 @@ from telegram.ext import (
     ContextTypes
 )
 
-# Application Components - try different import methods
-try:
-    from app.config import settings
-    print("Successfully imported app.config using normal import")
-except ImportError as e:
-    print(f"Normal import failed: {e}")
-    # Fallback: try importing from the app directory directly
-    import importlib.util
-    
-    # Try multiple possible locations for config.py
-    possible_config_paths = [
-        os.path.join(current_dir, 'app', 'config.py'),
-        os.path.join(os.path.dirname(current_dir), 'app', 'config.py'),
-        '/app/app/config.py',
-        '/app/config.py'
-    ]
-    
-    config_loaded = False
-    for config_path in possible_config_paths:
-        print(f"Trying config path: {config_path}")
-        if os.path.exists(config_path):
-            print(f"Found config file at: {config_path}")
-            try:
-                spec = importlib.util.spec_from_file_location("config", config_path)
-                config_module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(config_module)
-                settings = config_module.settings
-                config_loaded = True
-                print("Successfully loaded config using fallback method")
-                break
-            except Exception as e:
-                print(f"Failed to load config from {config_path}: {e}")
-                continue
-        else:
-            print(f"Config file not found at: {config_path}")
-    
-    if not config_loaded:
-        raise ImportError("Could not find or load config.py from any location")
+# Application Components
+from app.config import settings
 
-try:
-    from app.utils.logger import setup_logging, get_logger
-except ImportError:
-    # Fallback for logger
-    import importlib.util
-    logger_path = os.path.join(current_dir, 'app', 'utils', 'logger.py')
-    spec = importlib.util.spec_from_file_location("logger", logger_path)
-    logger_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(logger_module)
-    setup_logging = logger_module.setup_logging
-    get_logger = logger_module.get_logger
-
-try:
-    from app.services.audio_processor import AudioProcessor
-    from app.services.elevenlabs_client import ElevenLabsClient
-    from app.services.gemini_client import GeminiClient
-except ImportError:
-    # Fallback for services
-    import importlib.util
-    
-    # Audio processor
-    audio_processor_path = os.path.join(current_dir, 'app', 'services', 'audio_processor.py')
-    spec = importlib.util.spec_from_file_location("audio_processor", audio_processor_path)
-    audio_processor_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(audio_processor_module)
-    AudioProcessor = audio_processor_module.AudioProcessor
-    
-    # ElevenLabs client
-    elevenlabs_path = os.path.join(current_dir, 'app', 'services', 'elevenlabs_client.py')
-    spec = importlib.util.spec_from_file_location("elevenlabs_client", elevenlabs_path)
-    elevenlabs_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(elevenlabs_module)
-    ElevenLabsClient = elevenlabs_module.ElevenLabsClient
-    
-    # Gemini client
-    gemini_path = os.path.join(current_dir, 'app', 'services', 'gemini_client.py')
-    spec = importlib.util.spec_from_file_location("gemini_client", gemini_path)
-    gemini_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(gemini_module)
-    GeminiClient = gemini_module.GeminiClient
+from app.utils.logger import setup_logging, get_logger
+from app.services.audio_processor import AudioProcessor
+from app.services.elevenlabs_client import ElevenLabsClient
+from app.services.gemini_client import GeminiClient
 
 # Initialize logging
 setup_logging()

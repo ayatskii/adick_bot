@@ -50,6 +50,9 @@ COPY --chown=appuser:appuser ./bot_main.py ./bot_main.py
 COPY --chown=appuser:appuser ./test_api.py ./test_api.py
 COPY --chown=appuser:appuser ./requirements.txt ./requirements.txt
 
+# CRITICAL FIX: config.py is in .gitignore, so copy it explicitly
+COPY --chown=appuser:appuser ./app/config.py ./app/config.py
+
 # FIX: Verify app directory contents during build (remove after debugging)
 RUN echo "=== Verifying app directory structure ===" && \
     ls -la /app/app && \
