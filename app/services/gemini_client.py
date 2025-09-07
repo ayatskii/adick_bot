@@ -5,12 +5,42 @@ Advanced implementation with intelligent prompting and response handling
 import logging
 import asyncio
 import time
+import json
 from typing import Dict, Any, List, Optional
+from pydantic import BaseModel, Field
 import google.generativeai as genai
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+class GrammarIssue(BaseModel):
+    """Model for individual grammar issues"""
+    issue: str = Field(description="Brief description of the grammar issue")
+    explanation: str = Field(description="Detailed explanation of why this is an issue and how to fix it")
+
+class GrammarAnalysisResponse(BaseModel):
+    """Structured response model for grammar analysis"""
+    corrected_text: str = Field(description="The grammatically corrected version of the input text")
+    grammar_issues: List[GrammarIssue] = Field(
+        default=[],
+        description="List of grammar, spelling, and punctuation issues found in the original text"
+    )
+    speaking_tips: List[str] = Field(
+        default=[],
+        description="List of specific suggestions for improving speaking and communication skills"
+    )
+    confidence_score: float = Field(
+        default=0.95,
+        ge=0.0,
+        le=1.0,
+        description="Confidence level of the grammar corrections (0.0 to 1.0)"
+    )
+    improvements_made: int = Field(
+        default=0,
+        ge=0,
+        description="Number of grammar improvements made to the original text"
+    )
 
 class GeminiClient:
     """
@@ -34,7 +64,7 @@ class GeminiClient:
         # Configure Gemini API
         genai.configure(api_key=settings.gemini_api_key)
         
-        # Initialize model with safety settings
+        # Initialize model with safety settings and structured output support
         self.model = genai.GenerativeModel(
             model_name=settings.gemini_model,
             safety_settings=[
@@ -58,6 +88,47 @@ class GeminiClient:
         }
         
         logger.info(f"Gemini client initialized with model: {settings.gemini_model}")
+    
+    def _create_structured_grammar_prompt(self, text: str, context: Optional[str] = None) -> str:
+        """
+        Create an optimized prompt for structured grammar checking
+        
+        Args:
+            text: Text to check for grammar errors
+            context: Optional context about the text (e.g., "business email", "casual conversation")
+            
+        Returns:
+            Formatted prompt for the AI model optimized for structured output
+        """
+        
+        base_prompt = """You are a professional editor and grammar expert. Analyze the provided text and return a comprehensive grammar analysis.
+
+Your task is to:
+1. Correct all grammar, spelling, punctuation, and clarity issues while preserving the original meaning and tone
+2. Identify specific grammar mistakes with detailed explanations
+3. Provide practical speaking improvement suggestions
+4. Assess the quality of your corrections with a confidence score
+
+RULES:
+- Preserve the original meaning and intent completely
+- Maintain the original tone (formal/informal) 
+- Fix grammar, spelling, punctuation, and word choice errors
+- Improve clarity and flow where appropriate
+- If the text is already perfect, acknowledge this but still provide general speaking tips
+- Do not add new information or change the core message
+- Count the actual number of improvements made
+
+"""
+        
+        if context:
+            base_prompt += f"CONTEXT: This text is from a {context}. Adjust the correction style accordingly.\n\n"
+        
+        base_prompt += f"""TEXT TO ANALYZE:
+"{text}"
+
+Please provide your analysis in the required structured format."""
+        
+        return base_prompt
     
     def _create_grammar_prompt(self, text: str, context: Optional[str] = None) -> str:
         """
@@ -140,6 +211,142 @@ TEXT TO ANALYZE:
 "{text}"
 
 JSON RESPONSE:"""
+    
+    async def check_grammar_structured(
+        self, 
+        text: str, 
+        context: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Check and correct grammar using structured output from Gemini API
+        
+        Args:
+            text: Text to check for grammar errors
+            context: Optional context for better corrections
+            
+        Returns:
+            Dictionary with correction results using structured parsing:
+            {
+                "success": bool,
+                "original_text": str,
+                "corrected_text": str,
+                "grammar_issues": List[Dict],
+                "speaking_tips": List[str],
+                "confidence_score": float,
+                "improvements_made": int,
+                "processing_time": float,
+                "error": str (if failed)
+            }
+        """
+        try:
+            if not text or not text.strip():
+                return {"success": False, "error": "Empty text provided"}
+            
+            logger.info(f"Starting structured grammar check for text: '{text[:50]}{'...' if len(text) > 50 else ''}'")
+            start_time = time.time()
+            
+            # Create optimized prompt for structured output
+            prompt = self._create_structured_grammar_prompt(text.strip(), context)
+            
+            # Generation config with structured output
+            generation_config = {
+                "temperature": 0.1,
+                "top_p": 0.8,
+                "top_k": 40,
+                "max_output_tokens": 2048,
+                "response_mime_type": "application/json",
+                "response_schema": GrammarAnalysisResponse.model_json_schema()
+            }
+            
+            # Generate response with structured output
+            response = await self.model.generate_content_async(
+                prompt,
+                generation_config=generation_config
+            )
+            
+            processing_time = time.time() - start_time
+            
+            if not response:
+                return {"success": False, "error": "No response from Gemini API"}
+            
+            # Extract and parse structured response
+            try:
+                # Get the raw response text
+                if hasattr(response, 'candidates') and response.candidates and len(response.candidates) > 0:
+                    candidate = response.candidates[0]
+                    if hasattr(candidate, 'content') and candidate.content:
+                        if hasattr(candidate.content, 'parts') and candidate.content.parts and len(candidate.content.parts) > 0:
+                            raw_response = candidate.content.parts[0].text.strip()
+                        else:
+                            raw_response = str(candidate.content).strip()
+                    else:
+                        raw_response = str(candidate).strip()
+                elif hasattr(response, 'text'):
+                    raw_response = response.text.strip()
+                else:
+                    raw_response = str(response).strip()
+                
+                if not raw_response:
+                    return {"success": False, "error": "Empty response from Gemini API"}
+                
+                # Parse the structured JSON response
+                try:
+                    parsed_response = json.loads(raw_response)
+                    analysis = GrammarAnalysisResponse(**parsed_response)
+                    
+                    # Convert to output format
+                    result = {
+                        "success": True,
+                        "original_text": text,
+                        "corrected_text": analysis.corrected_text,
+                        "grammar_issues": [
+                            f"{issue.issue}: {issue.explanation}" 
+                            for issue in analysis.grammar_issues
+                        ],
+                        "speaking_tips": analysis.speaking_tips,
+                        "confidence_score": analysis.confidence_score,
+                        "improvements_made": analysis.improvements_made,
+                        "processing_time": processing_time
+                    }
+                    
+                    logger.info(f"Structured grammar check completed in {processing_time:.2f}s with {analysis.improvements_made} improvements")
+                    return result
+                    
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse structured JSON response: {e}")
+                    # Fallback to legacy parsing if structured parsing fails
+                    return await self._fallback_to_legacy_parsing(text, raw_response, processing_time)
+                    
+                except Exception as e:
+                    logger.error(f"Error creating structured response: {e}")
+                    return await self._fallback_to_legacy_parsing(text, raw_response, processing_time)
+                    
+            except Exception as parse_error:
+                logger.error(f"Error parsing Gemini response: {parse_error}")
+                return {"success": False, "error": f"Failed to parse Gemini response: {parse_error}"}
+            
+        except Exception as e:
+            logger.error(f"Structured grammar check error: {e}", exc_info=True)
+            return {
+                "success": False, 
+                "error": f"Grammar check failed: {str(e)}",
+                "original_text": text
+            }
+    
+    async def _fallback_to_legacy_parsing(self, text: str, raw_response: str, processing_time: float) -> Dict[str, Any]:
+        """
+        Fallback to legacy JSON parsing when structured output fails
+        
+        Args:
+            text: Original text
+            raw_response: Raw response from API
+            processing_time: Time taken for processing
+            
+        Returns:
+            Parsed response using legacy method
+        """
+        logger.info("Falling back to legacy JSON parsing method")
+        return self._parse_json_response(raw_response, text, processing_time)
     
     async def check_grammar(
         self, 
@@ -581,8 +788,9 @@ JSON RESPONSE:"""
         self, 
         text: str, 
         context: Optional[str] = None,
-        max_retries: int = 2,
-        retry_delay: float = 1.0
+        max_retries: int = 4,
+        retry_delay: float = 1.0,
+        use_structured: bool = True
     ) -> Dict[str, Any]:
         """
         Check grammar with retry logic for better reliability
@@ -592,6 +800,7 @@ JSON RESPONSE:"""
             context: Optional context
             max_retries: Maximum retry attempts
             retry_delay: Initial delay between retries
+            use_structured: Whether to use structured output (recommended)
             
         Returns:
             Grammar check result with retry information
@@ -602,12 +811,17 @@ JSON RESPONSE:"""
             try:
                 logger.debug(f"Grammar check attempt {attempt + 1}/{max_retries + 1}")
                 
-                result = await self.check_grammar(text, context)
+                # Use structured approach by default, fallback to legacy if needed
+                if use_structured and attempt < 2:  # Try structured for first 2 attempts
+                    result = await self.check_grammar_structured(text, context)
+                else:
+                    result = await self.check_grammar(text, context)
                 
                 if result.get("success"):
                     if attempt > 0:
                         logger.info(f"Grammar check succeeded after {attempt + 1} attempts")
                     result["retry_attempts"] = attempt
+                    result["method_used"] = "structured" if (use_structured and attempt < 2) else "legacy"
                     return result
                 
                 last_error = result.get("error", "Unknown error")
@@ -698,11 +912,15 @@ JSON RESPONSE:"""
                 if candidate.content and candidate.content.parts and len(candidate.content.parts) > 0:
                     response_text = candidate.content.parts[0].text
             
+            # Test structured output capability
+            structured_support = await self._test_structured_output()
+            
             return {
                 "healthy": True,
                 "api_accessible": True,
                 "model": settings.gemini_model,
-                "test_response": response_text
+                "test_response": response_text,
+                "structured_output_support": structured_support
             }
             
         except Exception as e:
@@ -713,3 +931,38 @@ JSON RESPONSE:"""
                 "model": settings.gemini_model,
                 "error": str(e)
             }
+    
+    async def _test_structured_output(self) -> bool:
+        """
+        Test if the API supports structured output with response schema
+        
+        Returns:
+            True if structured output is supported, False otherwise
+        """
+        try:
+            # Create a simple test schema
+            test_prompt = "Respond with: corrected_text: 'Hello world', confidence_score: 0.95"
+            
+            # Try structured output
+            test_config = {
+                "temperature": 0.1,
+                "max_output_tokens": 100,
+                "response_mime_type": "application/json",
+                "response_schema": GrammarAnalysisResponse.model_json_schema()
+            }
+            
+            test_response = await self.model.generate_content_async(
+                test_prompt,
+                generation_config=test_config
+            )
+            
+            if test_response and test_response.candidates:
+                logger.info("Structured output test: SUCCESS - API supports response schema")
+                return True
+            else:
+                logger.warning("Structured output test: FAILED - No response received")
+                return False
+                
+        except Exception as e:
+            logger.warning(f"Structured output test: FAILED - {e}")
+            return False

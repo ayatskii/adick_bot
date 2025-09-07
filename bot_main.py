@@ -391,19 +391,36 @@ class TelegramAudioBot:
         else:
             response += f"✨ **Grammar:** Perfect! No corrections needed.\n\n"
         
-        # Grammar issues and speaking tips (new features)
+        # Enhanced grammar analysis and speaking tips
         grammar_issues = result.get("grammar_issues", [])
         speaking_tips = result.get("speaking_tips", [])
+        confidence_score = result.get("confidence_score", 0)
+        improvements_made = result.get("improvements_made", 0)
+        method_used = result.get("method_used", "unknown")
+        
+        # Add confidence and method info if available
+        if confidence_score > 0:
+            confidence_emoji = "🟢" if confidence_score >= 0.9 else "🟡" if confidence_score >= 0.7 else "🔴"
+            response += f"{confidence_emoji} **Analysis Confidence:** {confidence_score:.1%}\n"
+        
+        if improvements_made > 0:
+            response += f"📈 **Improvements Made:** {improvements_made}\n"
+        
+        if method_used != "unknown":
+            method_emoji = "⚡" if method_used == "structured" else "🔧"
+            response += f"{method_emoji} **Processing Method:** {method_used.title()}\n"
+        
+        response += "\n"
         
         if grammar_issues and isinstance(grammar_issues, list) and len(grammar_issues) > 0:
             # Filter out placeholder messages
             real_issues = [issue for issue in grammar_issues if issue and "Unable to analyze" not in issue]
             if real_issues:
-                response += f"🔍 **Grammar Issues Found:**\n"
+                response += f"🔍 **Grammar Analysis:**\n"
                 for i, issue in enumerate(real_issues[:3], 1):  # Limit to 3 issues
                     # Truncate long explanations to keep response manageable
-                    if len(issue) > 200:
-                        issue = issue[:200] + "..."
+                    if len(issue) > 180:
+                        issue = issue[:180] + "..."
                     response += f"• {issue}\n"
                 response += "\n"
         
@@ -413,6 +430,9 @@ class TelegramAudioBot:
             if real_tips:
                 response += f"💡 **Speaking Improvement Tips:**\n"
                 for i, tip in enumerate(real_tips[:3], 1):  # Limit to 3 tips
+                    # Truncate long tips to keep response manageable
+                    if len(tip) > 120:
+                        tip = tip[:120] + "..."
                     response += f"• {tip}\n"
                 response += "\n"
         

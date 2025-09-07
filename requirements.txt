@@ -10,7 +10,7 @@ aiofiles==23.2.1
 
 # API Clients
 elevenlabs>=1.0.0
-google-generativeai==0.3.2
+google-generativeai>=0.7.0
 
 # Audio Processing
 librosa==0.10.1
