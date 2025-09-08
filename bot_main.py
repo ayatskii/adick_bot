@@ -284,26 +284,12 @@ class TelegramAudioBot:
         
         response = f"✅ **{audio_type.title()} processed successfully!**\n\n"
         
-        # Original transcription
-        response += f"🎤 **Original Transcription:**\n_{original_text}_\n\n"
-        
-        # Corrected version (only if different)
-        if grammar_corrected:
-            response += f"📝 **Grammar Corrected:**\n_{corrected_text}_\n\n"
-        else:
-            response += f"✨ **Grammar:** Perfect! No corrections needed.\n\n"
-        
         # Enhanced grammar analysis and speaking tips
         grammar_issues = result.get("grammar_issues", [])
         speaking_tips = result.get("speaking_tips", [])
         confidence_score = result.get("confidence_score", 0)
         improvements_made = result.get("improvements_made", 0)
         method_used = result.get("method_used", "unknown")
-        
-        # Add confidence and method info if available
-        if confidence_score > 0:
-            confidence_emoji = "🟢" if confidence_score >= 0.9 else "🟡" if confidence_score >= 0.7 else "🔴"
-            response += f"{confidence_emoji} **Analysis Confidence:** {confidence_score:.1%}\n"
         
         if improvements_made > 0:
             response += f"📈 **Improvements Made:** {improvements_made}\n"
