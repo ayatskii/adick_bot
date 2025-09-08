@@ -247,7 +247,7 @@ class TelegramAudioBot:
                     "• Try with a smaller file (under 25MB)\n"
                     "• Ensure the audio contains speech\n"
                     "• Try again in a few moments\n\n"
-                    "If the problem persists, contact support."
+                    "If the problem persists, иди нахуй."
                 )
                 
                 await processing_msg.edit_text(response_text, parse_mode="Markdown")
@@ -337,24 +337,6 @@ class TelegramAudioBot:
                         tip = tip[:120] + "..."
                     response += f"• {tip}\n"
                 response += "\n"
-        
-        # Processing details
-        response += f"📊 **Processing Details:**\n"
-        response += f"• Language: {language.title()}\n"
-        response += f"• Processing Time: {processing_time:.1f}s\n"
-        
-        if confidence > 0:
-            response += f"• Confidence: {confidence:.1%}\n"
-        
-        # File information
-        file_info = result.get("file_info", {})
-        if file_info.get("size_mb"):
-            response += f"• File Size: {file_info['size_mb']:.1f}MB\n"
-        
-        # Optional: Speaker information
-        if result.get("speakers"):
-            speaker_count = len(result["speakers"])
-            response += f"• Speakers Detected: {speaker_count}\n"
         
         # Optional: Audio events
         if result.get("audio_events"):
