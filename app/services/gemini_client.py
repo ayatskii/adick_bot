@@ -92,7 +92,7 @@ class GeminiClient:
             "temperature": 0.1,  # Low temperature for consistent grammar correction
             "top_p": 0.8,
             "top_k": 40,
-            "max_output_tokens": 2048,
+            "max_output_tokens": 4096,
         }
         
         logger.info(f"Gemini client initialized with model: {settings.gemini_model}")
@@ -318,7 +318,7 @@ JSON RESPONSE:"""
                     "temperature": 0.1,
                     "top_p": 0.8,
                     "top_k": 40,
-                    "max_output_tokens": 2048,
+                    "max_output_tokens": 4096,
                     "response_mime_type": "application/json",
                     "response_schema": self._create_gemini_schema()
                 }
@@ -331,7 +331,7 @@ JSON RESPONSE:"""
                     "temperature": 0.1,
                     "top_p": 0.8,
                     "top_k": 40,
-                    "max_output_tokens": 2048,
+                    "max_output_tokens": 4096,
                     "response_mime_type": "application/json"
                 }
             

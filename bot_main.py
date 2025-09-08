@@ -124,8 +124,6 @@ class TelegramAudioBot:
         # Add command handlers
         application.add_handler(CommandHandler("start", self.start_command))
         application.add_handler(CommandHandler("help", self.help_command))
-        application.add_handler(CommandHandler("status", self.status_command))
-        application.add_handler(CommandHandler("stats", self.stats_command))
         
         # Add message handlers for different audio types
         application.add_handler(MessageHandler(filters.AUDIO, self.handle_audio_message))
@@ -163,21 +161,7 @@ class TelegramAudioBot:
         }
         
         welcome_message = (
-            f"🎤 **Welcome to Audio Bot, {user.first_name}!**\n\n"
-            "I can help you transcribe and improve audio messages!\n\n"
-            "📋 **How to use:**\n"
-            "• Send me any audio file, voice message, or video note\n"
-            "• I'll transcribe the speech using AI\n"
-            "• Then I'll check and correct the grammar\n"
-            "• You'll get both original and corrected versions\n\n"
-            "🌍 **Supported languages:** 99+ languages with auto-detection\n"
-            "📁 **File size limit:** Up to 25MB\n"
-            "⚡ **Processing time:** Usually 10-30 seconds\n\n"
-            "💡 **Tips:**\n"
-            "• Speak clearly for better transcription\n"
-            "• Minimize background noise\n"
-            "• Use /help for more commands\n\n"
-            "🚀 Ready to transcribe your first audio!"
+            f"🎤 **Welcome to Audio Bot, {user.first_name}-пидр**\n\n"
         )
         
         await update.message.reply_text(welcome_message, parse_mode="Markdown")
@@ -194,92 +178,10 @@ class TelegramAudioBot:
             "**Commands:**\n"
             "• `/start` - Start the bot and see welcome message\n"
             "• `/help` - Show this help message\n"
-            "• `/status` - Check bot and service status\n"
-            "• `/stats` - Show your usage statistics\n\n"
-            "**Supported Audio Formats:**\n"
-            "• Voice messages (OGG, OPUS)\n"
-            "• Audio files (MP3, WAV, M4A, AAC)\n"
-            "• Video notes (MP4 audio track)\n"
-            "• Audio documents\n\n"
-            "**Features:**\n"
-            "• 🎯 High-accuracy transcription\n"
-            "• 📝 Grammar checking and correction\n"
-            "• 🌍 99+ language support\n"
-            "• 🔄 Automatic retry on failures\n"
-            "• 📊 Processing statistics\n\n"
-            "**Limits:**\n"
-            "• Maximum file size: 25MB\n"
-            "• Processing timeout: 2 minutes\n"
-            "• Rate limit: Reasonable usage\n\n"
-            "Having issues? Contact support!"
         )
         
         await message.reply_text(help_text, parse_mode="Markdown")
     
-    async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /status command - show bot and service status"""
-        user_id = update.effective_user.id
-        
-        try:
-            # Check service health
-            elevenlabs_health = await self.audio_processor.elevenlabs_client.check_api_health()
-            gemini_health = await self.audio_processor.gemini_client.check_api_health()
-            
-            # Format status
-            elevenlabs_status = "✅ Healthy" if elevenlabs_health.get("healthy") else "❌ Error"
-            gemini_status = "✅ Healthy" if gemini_health.get("healthy") else "❌ Error"
-            
-            status_text = (
-                "📊 **Bot Status**\n\n"
-                f"🤖 **Bot:** ✅ Running\n"
-                f"🎤 **Transcription Service:** {elevenlabs_status}\n"
-                f"📝 **Grammar Service:** {gemini_status}\n"
-                f"💾 **Upload Directory:** ✅ Ready\n\n"
-                f"**Service Details:**\n"
-                f"• ElevenLabs Model: {settings.elevenlabs_model}\n"
-                f"• Gemini Model: {settings.gemini_model}\n"
-                f"• Max File Size: {settings.max_file_size // (1024*1024)}MB\n"
-                f"• Active Users: {len(self.user_sessions)}\n\n"
-                "All systems operational! 🚀"
-            )
-            
-        except Exception as e:
-            logger.error(f"Error checking status: {e}")
-            status_text = (
-                "📊 **Bot Status**\n\n"
-                "⚠️ Unable to check all services\n"
-                "Bot is running but some services may be experiencing issues.\n\n"
-                "Please try again later or contact support."
-            )
-        
-        await update.message.reply_text(status_text, parse_mode="Markdown")
-    
-    async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /stats command - show user statistics"""
-        user_id = update.effective_user.id
-        session = self.user_sessions.get(user_id, {})
-        
-        if not session:
-            await update.message.reply_text(
-                "📊 No statistics available yet. Send some audio messages first!"
-            )
-            return
-        
-        current_time = asyncio.get_event_loop().time()
-        session_duration = current_time - session.get("start_time", current_time)
-        hours = int(session_duration // 3600)
-        minutes = int((session_duration % 3600) // 60)
-        
-        stats_text = (
-            f"📊 **Your Statistics**\n\n"
-            f"👤 **User:** {session.get('first_name', 'Unknown')}\n"
-            f"⏱️ **Session Duration:** {hours}h {minutes}m\n"
-            f"🎵 **Messages Processed:** {session.get('messages_processed', 0)}\n"
-            f"🕒 **Last Activity:** Recent\n\n"
-            "Keep sending audio to see more stats! 📈"
-        )
-        
-        await update.message.reply_text(stats_text, parse_mode="Markdown")
     
     # ===========================================
     # AUDIO MESSAGE HANDLERS
