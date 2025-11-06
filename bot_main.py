@@ -161,7 +161,7 @@ class TelegramAudioBot:
         }
         
         welcome_message = (
-            f"🎤 **Welcome to Audio Bot, {user.first_name}-пидр**\n\n"
+            f"🎤 **Welcome to Audio Bot, {user.first_name}**\n\n"
         )
         
         await update.message.reply_text(welcome_message, parse_mode="Markdown")
@@ -247,7 +247,7 @@ class TelegramAudioBot:
                     "• Try with a smaller file (under 25MB)\n"
                     "• Ensure the audio contains speech\n"
                     "• Try again in a few moments\n\n"
-                    "If the problem persists, иди нахуй."
+                    "If the problem persists, try to connect the developer"
                 )
                 
                 await processing_msg.edit_text(response_text, parse_mode="Markdown")
