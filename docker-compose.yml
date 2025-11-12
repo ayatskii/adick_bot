@@ -20,11 +20,16 @@ services:
       
       # Polling Configuration
       - POLLING_INTERVAL=1.0
+      
+      # Config sync
+      - PROJECT_ROOT=/app
     
     volumes:
       # Persistent storage for uploads and logs
       - audio_uploads:/app/uploads
       - app_logs:/app/logs
+      # Writable config directory for whitelist_config.py
+      - whitelist_config:/app/config
     
     restart: always
     
@@ -55,4 +60,6 @@ volumes:
   audio_uploads:
     driver: local
   app_logs:
+    driver: local
+  whitelist_config:
     driver: local

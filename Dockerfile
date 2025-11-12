@@ -47,11 +47,12 @@ WORKDIR /app
 # CRITICAL FIX: Copy the entire app directory structure
 COPY --chown=appuser:appuser ./app ./app
 COPY --chown=appuser:appuser ./bot_main.py ./bot_main.py
-COPY --chown=appuser:appuser ./test_api.py ./test_api.py
 COPY --chown=appuser:appuser ./requirements.txt ./requirements.txt
 
-# CRITICAL FIX: config.py is in .gitignore, so copy it explicitly
+# CRITICAL FIX: config.py is in .gitignore, so copy it explicitly if it exists
+# Also copy whitelist_config.py (needed for whitelist functionality)
 COPY --chown=appuser:appuser ./app/config.py ./app/config.py
+COPY --chown=appuser:appuser ./whitelist_config.py ./whitelist_config.py
 
 # FIX: Verify app directory contents during build (remove after debugging)
 RUN echo "=== Verifying app directory structure ===" && \
@@ -64,9 +65,14 @@ RUN echo "=== Verifying app directory structure ===" && \
 ENV PYTHONPATH=/app:/app/app
 
 # Create necessary directories with proper permissions
-RUN mkdir -p uploads logs tmp && \
-    chown -R appuser:appuser uploads logs tmp && \
-    chmod 755 uploads logs tmp
+RUN mkdir -p uploads logs tmp config data && \
+    chown -R appuser:appuser uploads logs tmp config data && \
+    chmod 755 uploads logs tmp config data
+
+# Copy initial whitelist_config.py to writable config directory
+# This allows the bot to modify it even in read-only filesystem
+# Note: The volume mount will override this, but this provides a default
+COPY --chown=appuser:appuser ./whitelist_config.py ./config/whitelist_config.py
 
 # Switch to non-root user
 USER appuser

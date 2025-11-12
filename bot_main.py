@@ -44,6 +44,7 @@ from telegram.ext import (
     filters,
     ContextTypes
 )
+from telegram.error import NetworkError, TimedOut, RetryAfter
 
 # Application Components
 from app.config import settings
@@ -52,6 +53,18 @@ from app.utils.logger import setup_logging, get_logger
 from app.services.audio_processor import AudioProcessor
 from app.services.elevenlabs_client import ElevenLabsClient
 from app.services.gemini_client import GeminiClient
+
+# Whitelist system
+from app.whitelist import check_user_access, check_username_access
+from app.bot_handlers import (
+    admin_add_user_command,
+    admin_remove_user_command,
+    admin_add_username_command,
+    admin_remove_username_command,
+    admin_whitelist_status_command,
+    admin_add_admin_command,
+    admin_remove_admin_command,
+)
 
 # Initialize logging
 setup_logging()
@@ -125,6 +138,35 @@ class TelegramAudioBot:
         application.add_handler(CommandHandler("start", self.start_command))
         application.add_handler(CommandHandler("help", self.help_command))
         
+        # Add admin whitelist command handlers
+        # These commands use underscore format: /adduser_123456, /removeuser_123456, etc.
+        application.add_handler(MessageHandler(
+            filters.Regex(r'^/adduser_\d+') & filters.COMMAND, 
+            admin_add_user_command
+        ))
+        application.add_handler(MessageHandler(
+            filters.Regex(r'^/removeuser_\d+') & filters.COMMAND, 
+            admin_remove_user_command
+        ))
+        application.add_handler(MessageHandler(
+            filters.Regex(r'^/addusername_[\w@]+') & filters.COMMAND, 
+            admin_add_username_command
+        ))
+        application.add_handler(MessageHandler(
+            filters.Regex(r'^/removeusername_[\w@]+') & filters.COMMAND, 
+            admin_remove_username_command
+        ))
+        # Admin management commands
+        application.add_handler(MessageHandler(
+            filters.Regex(r'^/addadmin_\d+') & filters.COMMAND, 
+            admin_add_admin_command
+        ))
+        application.add_handler(MessageHandler(
+            filters.Regex(r'^/removeadmin_\d+') & filters.COMMAND, 
+            admin_remove_admin_command
+        ))
+        application.add_handler(CommandHandler("whitelist", admin_whitelist_status_command))
+        
         # Add message handlers for different audio types
         application.add_handler(MessageHandler(filters.AUDIO, self.handle_audio_message))
         application.add_handler(MessageHandler(filters.VOICE, self.handle_voice_message))
@@ -149,6 +191,19 @@ class TelegramAudioBot:
         user = update.effective_user
         chat_id = update.effective_chat.id
         
+        # Check user access
+        if not check_user_access(user.id):
+            # Also check username access if user ID check fails
+            username = user.username if user.username else ""
+            if not check_username_access(username):
+                logger.warning(f"Access denied for user {user.id} ({user.username})")
+                await update.message.reply_text(
+                    "❌ **Доступ запрещен**\n\n"
+                    "Вы не авторизованы для использования этого бота.\n"
+                    "Обратитесь к администратору для получения доступа."
+                )
+                return
+        
         logger.info(f"👋 New user started bot: {user.first_name} ({user.id})")
         
         # Initialize user session
@@ -172,6 +227,21 @@ class TelegramAudioBot:
         message = update.message or update.edited_message
         if not message:
             return
+        
+        user = update.effective_user
+        
+        # Check user access
+        if not check_user_access(user.id):
+            # Also check username access if user ID check fails
+            username = user.username if user.username else ""
+            if not check_username_access(username):
+                logger.warning(f"Access denied for user {user.id} ({user.username}) attempting to use /help")
+                await message.reply_text(
+                    "❌ **Доступ запрещен**\n\n"
+                    "Вы не авторизованы для использования этого бота.\n"
+                    "Обратитесь к администратору для получения доступа."
+                )
+                return
             
         help_text = (
             "🤖 **Audio Bot Help**\n\n"
@@ -207,6 +277,19 @@ class TelegramAudioBot:
         """Common audio processing logic for all audio message types"""
         user = update.effective_user
         message = update.message
+        
+        # Check user access
+        if not check_user_access(user.id):
+            # Also check username access if user ID check fails
+            username = user.username if user.username else ""
+            if not check_username_access(username):
+                logger.warning(f"Access denied for user {user.id} ({user.username}) attempting to process {audio_type}")
+                await message.reply_text(
+                    "❌ **Доступ запрещен**\n\n"
+                    "Вы не авторизованы для использования этого бота.\n"
+                    "Обратитесь к администратору для получения доступа."
+                )
+                return
         
         logger.info(f"🎵 Processing {audio_type} from user {user.first_name} ({user.id})")
         
@@ -350,9 +433,39 @@ class TelegramAudioBot:
     
     async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE):
         """Handle errors that occur during message processing"""
-        logger.error(f"❌ Exception while handling update {update}: {context.error}", exc_info=context.error)
+        error = context.error
         
-        # Try to notify the user if possible
+        # Handle network errors gracefully - these are transient and expected
+        if isinstance(error, NetworkError):
+            # Network errors are common and the library will retry automatically
+            # Log at warning level instead of error to reduce noise
+            logger.warning(
+                f"⚠️ Network error (will retry automatically): {type(error).__name__}: {error}"
+            )
+            # Don't notify users about network errors - they're not user-facing issues
+            return
+        
+        # Handle timeout errors similarly
+        if isinstance(error, TimedOut):
+            logger.warning(
+                f"⏱️ Request timeout (will retry automatically): {error}"
+            )
+            return
+        
+        # Handle rate limiting - log but don't notify user
+        if isinstance(error, RetryAfter):
+            logger.warning(
+                f"⏳ Rate limited by Telegram API. Retry after {error.retry_after} seconds"
+            )
+            return
+        
+        # For other errors, log as error and notify user if possible
+        logger.error(
+            f"❌ Exception while handling update {update}: {error}", 
+            exc_info=error
+        )
+        
+        # Try to notify the user if possible (only for non-network errors)
         if isinstance(update, Update) and update.effective_chat:
             try:
                 await context.bot.send_message(
@@ -429,6 +542,9 @@ class TelegramAudioBot:
             logger.info("🛑 Stopping Telegram Audio Bot...")
             
             try:
+                # Sync whitelist config from Docker volume before shutdown
+                await self._sync_whitelist_config()
+                
                 # Stop the application (this also stops the updater)
                 await self.application.stop()
                 await self.application.shutdown()
@@ -438,6 +554,40 @@ class TelegramAudioBot:
                 
             except Exception as e:
                 logger.error(f"❌ Error stopping bot: {e}")
+    
+    async def _sync_whitelist_config(self):
+        """Sync whitelist_config.py from Docker volume to project directory"""
+        try:
+            import os
+            from pathlib import Path
+            
+            # Only sync if running in Docker
+            docker_config = Path("/app/config/whitelist_config.py")
+            if not docker_config.exists():
+                logger.info("Not running in Docker, skipping config sync")
+                return
+            
+            # Try to find project root (where whitelist_config.py should be)
+            # This is tricky in Docker, so we'll use an environment variable or default
+            project_root = os.getenv("PROJECT_ROOT", "/app")
+            target_config = Path(project_root) / "whitelist_config.py"
+            
+            # If we can't write to project root, try to copy to a known location
+            if not os.access(Path(project_root), os.W_OK):
+                logger.warning("Cannot write to project root, config sync skipped")
+                return
+            
+            # Copy from Docker volume to project directory
+            import shutil
+            if docker_config.exists():
+                shutil.copy2(docker_config, target_config)
+                logger.info(f"✅ Synced whitelist_config.py to {target_config}")
+            else:
+                logger.info("No config file in Docker volume to sync")
+                
+        except Exception as e:
+            logger.warning(f"Could not sync whitelist config: {e}")
+            # Don't fail shutdown if sync fails
 
 # ===========================================
 # SIGNAL HANDLING AND MAIN EXECUTION

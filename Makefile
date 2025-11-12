@@ -22,6 +22,9 @@ help:
 	@echo "  health    - Run health check"
 	@echo "  monitor   - Show monitoring dashboard"
 	@echo ""
+	@echo "Whitelist Management:"
+	@echo "  sync-config - Sync whitelist_config.py from Docker volume to project"
+	@echo ""
 	@echo "Cleanup:"
 	@echo "  clean     - Clean up containers and images"
 	@echo "  clean-all - Clean up everything including volumes (DESTRUCTIVE)"
@@ -43,6 +46,8 @@ start:
 stop:
 	@echo "🛑 Stopping Telegram Audio Bot..."
 	@docker-compose down
+	@echo "🔄 Syncing whitelist_config.py from Docker volume..."
+	@python scripts/sync_whitelist_config.py || bash scripts/sync_whitelist_config.sh || echo "⚠️  Sync skipped (not critical)"
 
 restart:
 	@echo "🔄 Restarting Telegram Audio Bot..."
@@ -87,3 +92,7 @@ bot-local:
 shell:
 	@echo "🐚 Opening shell in container..."
 	@docker-compose exec telegram-audio-bot /bin/bash
+
+sync-config:
+	@echo "🔄 Syncing whitelist_config.py from Docker volume..."
+	@python scripts/sync_whitelist_config.py || bash scripts/sync_whitelist_config.sh || echo "⚠️  Sync failed - check if container/volume exists"
