@@ -591,13 +591,31 @@ def add_admin_to_permanent_config(user_id: int) -> bool:
         
         if non_comment_lines:
             # List has entries, add new entry after the last one
-            # Preserve the original formatting by appending to the existing content
+            # Ensure the last existing entry has a comma
+            lines = list_content.rstrip().split('\n')
+            # Find the last non-empty, non-comment line
+            last_line_idx = -1
+            for i in range(len(lines) - 1, -1, -1):
+                line = lines[i].strip()
+                if line and not line.startswith('#'):
+                    last_line_idx = i
+                    break
+            
+            if last_line_idx >= 0:
+                # Ensure the last line has a comma
+                last_line = lines[last_line_idx]
+                if not last_line.rstrip().endswith(','):
+                    # Add comma to the last line if it doesn't have one
+                    lines[last_line_idx] = last_line.rstrip() + ','
+            
+            # Reconstruct list_content with proper formatting
+            formatted_content = '\n'.join(lines)
+            if not formatted_content.endswith('\n'):
+                formatted_content += '\n'
+            
+            # Add the new entry
             new_entry = f"    {user_id},"
-            # Ensure proper newline handling
-            if list_content.rstrip().endswith('\n'):
-                replacement = match.group(1) + list_content.rstrip() + '\n' + new_entry + '\n' + match.group(3)
-            else:
-                replacement = match.group(1) + list_content + '\n' + new_entry + '\n' + match.group(3)
+            replacement = match.group(1) + formatted_content + new_entry + '\n' + match.group(3)
         else:
             # Empty list, add first entry
             new_entry = f"    {user_id},"
