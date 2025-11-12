@@ -536,20 +536,38 @@ def add_admin_to_permanent_config(user_id: int) -> bool:
     try:
         config_file = _get_config_file_path()
         
+        logger.info(f"Attempting to add admin {user_id} to config at: {config_file}")
+        logger.info(f"Config file absolute path: {config_file.absolute()}")
+        logger.info(f"Config file exists: {config_file.exists()}")
+        
         if not config_file.exists():
             logger.error(f"Config file not found: {config_file}")
             return False
         
+        # Check if we can write to the file
+        if not os.access(config_file, os.W_OK):
+            logger.error(f"Cannot write to config file: {config_file}")
+            try:
+                logger.error(f"File permissions: {oct(config_file.stat().st_mode)}")
+            except:
+                pass
+            return False
+        
         # Read current config file
+        logger.info(f"Reading config file: {config_file}")
         with open(config_file, 'r', encoding='utf-8') as f:
             content = f.read()
         
-        # Check if user ID already exists in ADMIN_USER_IDS
-        if f"{user_id}," in content or f"{user_id}]" in content:
-            # Check if it's in ADMIN_USER_IDS section
-            admin_pattern = r'ADMIN_USER_IDS\s*=\s*\[(.*?)\]'
-            admin_match = re.search(admin_pattern, content, re.DOTALL)
-            if admin_match and str(user_id) in admin_match.group(1):
+        # First, check if user ID already exists in ADMIN_USER_IDS section specifically
+        admin_pattern = r'ADMIN_USER_IDS\s*=\s*\[(.*?)\]'
+        admin_match = re.search(admin_pattern, content, re.DOTALL)
+        
+        if admin_match:
+            admin_content = admin_match.group(1)
+            # Check if user ID is already in the admin list
+            # Use word boundary to avoid partial matches
+            user_id_pattern = rf'\b{re.escape(str(user_id))}\b'
+            if re.search(user_id_pattern, admin_content):
                 logger.info(f"User ID {user_id} already in admin list")
                 return True
         
@@ -565,11 +583,21 @@ def add_admin_to_permanent_config(user_id: int) -> bool:
         list_content = match.group(2)
         
         # Add the new admin ID
-        lines = list_content.strip().split('\n')
-        if lines and lines[-1].strip():
-            # Add comma and new entry
+        # Strip the list content to check if it's empty (ignoring whitespace and comments)
+        stripped_content = list_content.strip()
+        # Remove comments and empty lines for checking
+        non_comment_lines = [line for line in stripped_content.split('\n') 
+                           if line.strip() and not line.strip().startswith('#')]
+        
+        if non_comment_lines:
+            # List has entries, add new entry after the last one
+            # Preserve the original formatting by appending to the existing content
             new_entry = f"    {user_id},"
-            replacement = match.group(1) + list_content + '\n' + new_entry + '\n' + match.group(3)
+            # Ensure proper newline handling
+            if list_content.rstrip().endswith('\n'):
+                replacement = match.group(1) + list_content.rstrip() + '\n' + new_entry + '\n' + match.group(3)
+            else:
+                replacement = match.group(1) + list_content + '\n' + new_entry + '\n' + match.group(3)
         else:
             # Empty list, add first entry
             new_entry = f"    {user_id},"
@@ -579,8 +607,19 @@ def add_admin_to_permanent_config(user_id: int) -> bool:
         new_content = re.sub(pattern, replacement, content, flags=re.DOTALL)
         
         # Write back to file
-        with open(config_file, 'w', encoding='utf-8') as f:
-            f.write(new_content)
+        logger.info(f"Writing updated config to: {config_file}")
+        try:
+            with open(config_file, 'w', encoding='utf-8') as f:
+                f.write(new_content)
+            logger.info(f"Successfully wrote to config file: {config_file}")
+        except Exception as write_error:
+            logger.error(f"Failed to write to config file: {write_error}", exc_info=True)
+            return False
+        
+        # Verify the write was successful
+        if not config_file.exists():
+            logger.error(f"Config file disappeared after write: {config_file}")
+            return False
         
         # Update runtime configuration
         _reload_config()
