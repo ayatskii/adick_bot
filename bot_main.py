@@ -640,12 +640,14 @@ if __name__ == "__main__":
         logger.info(f"📋 Configuration validation:")
         logger.info(f"  • Bot Token: {'✅ Set' if settings.telegram_bot_token else '❌ Missing'}")
         logger.info(f"  • ElevenLabs API: {'✅ Set' if settings.elevenlabs_api_key else '❌ Missing'}")
-        logger.info(f"  • Gemini API: {'✅ Set' if settings.gemini_api_key else '❌ Missing'}")
+        logger.info(f"  • GCP Project ID: {'✅ ' + settings.gcp_project_id if settings.gcp_project_id else '❌ Missing'}")
+        logger.info(f"  • GCP Location: {settings.gcp_location}")
+        logger.info(f"  • Vertex Model: {settings.vertex_model}")
         logger.info(f"  • Upload Dir: {settings.upload_dir}")
         logger.info(f"  • Log Level: {settings.log_level}")
         
         # Check for missing critical configuration
-        if not all([settings.telegram_bot_token, settings.elevenlabs_api_key, settings.gemini_api_key]):
+        if not all([settings.telegram_bot_token, settings.elevenlabs_api_key, settings.gcp_project_id]):
             logger.error("❌ Missing required API keys! Check your .env file.")
             sys.exit(1)
         
