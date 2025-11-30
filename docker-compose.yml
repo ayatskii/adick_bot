@@ -7,50 +7,54 @@ services:
       # API Keys (load from .env file)
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-      
+
+      # Google Cloud / Vertex AI Configuration
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID}
+      - GCP_LOCATION=${GCP_LOCATION:-us-central1}
+      - GCP_CREDENTIALS_PATH=${GCP_CREDENTIALS_PATH:-./service-account-key.json}
+      - VERTEX_MODEL=${VERTEX_MODEL:-gemini-2.0-flash-exp}
+
       # Production Configuration
-      - LOG_LEVEL=INFO
-      - MAX_FILE_SIZE=26214400  # 25MB
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - MAX_FILE_SIZE=${MAX_FILE_SIZE:-26214400} # 25MB
       - UPLOAD_DIR=uploads
-      
+
       # Model Configuration
-      - ELEVEN_LABS_MODEL=scribe_v1
-      - GEMINI_MODEL=gemini-2.5-pro
-      
+      - ELEVEN_LABS_MODEL=${ELEVEN_LABS_MODEL:-scribe_v1}
+
       # Polling Configuration
-      - POLLING_INTERVAL=1.0
-      
+      - POLLING_INTERVAL=${POLLING_INTERVAL:-1.0}
+
       # Config sync
       - PROJECT_ROOT=/app
-    
+
     volumes:
       # Persistent storage for uploads and logs
       - audio_uploads:/app/uploads
       - app_logs:/app/logs
       # Writable config directory for whitelist_config.py
       - whitelist_config:/app/config
-    
+
     restart: always
-    
+
     # Production resource limits
     deploy:
       resources:
         limits:
-          cpus: '2.0'
+          cpus: "2.0"
           memory: 2G
-    
+
     # Production logging configuration
     logging:
       driver: "json-file"
       options:
         max-size: "50m"
         max-file: "5"
-    
+
     # Security hardening
     security_opt:
       - no-new-privileges:true
-    
+
     # Read-only root filesystem for security
     read_only: true
     tmpfs:

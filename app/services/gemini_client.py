@@ -1,14 +1,25 @@
 """
-Google Gemini API Client for Grammar Checking and Text Improvement
-Advanced implementation with intelligent prompting and response handling
+Google Vertex AI Client for Grammar Checking and Text Improvement
+Advanced implementation with intelligent prompting and response handling using Vertex AI
 """
 import logging
 import asyncio
 import time
 import json
+import os
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel, Field
-import google.generativeai as genai
+
+# Vertex AI imports
+import vertexai
+from vertexai.generative_models import (
+    GenerativeModel,
+    GenerationConfig,
+    HarmCategory,
+    HarmBlockThreshold,
+    Content,
+    Part
+)
 
 from app.config import settings
 
@@ -44,7 +55,7 @@ class GrammarAnalysisResponse(BaseModel):
 
 class GeminiClient:
     """
-    Advanced Gemini API client for grammar checking and text improvement
+    Advanced Vertex AI client for grammar checking and text improvement
     
     Features:
     - Context-aware grammar correction
@@ -55,54 +66,65 @@ class GeminiClient:
     """
     
     def __init__(self):
-        """Initialize Gemini client with API credentials"""
+        """Initialize Vertex AI client with GCP credentials"""
         
-        # Validate API key
-        if not settings.gemini_api_key or settings.gemini_api_key == "your_key_here":
-            raise ValueError("Gemini API key is required. Set GEMINI_API_KEY environment variable.")
+        # Validate GCP project configuration
+        if not settings.gcp_project_id:
+            raise ValueError("GCP Project ID is required. Set GCP_PROJECT_ID environment variable.")
         
-        # Configure Gemini API
-        genai.configure(api_key=settings.gemini_api_key)
+        # Initialize Vertex AI
+        try:
+            # If credentials path is provided, use it
+            if settings.gcp_credentials_path:
+                # Convert relative path to absolute path
+                credentials_path = os.path.abspath(settings.gcp_credentials_path)
+                if os.path.exists(credentials_path):
+                    os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
+                    logger.info(f"Using service account credentials from: {credentials_path}")
+                else:
+                    logger.warning(f"Credentials file not found at: {credentials_path}")
+            
+            # Initialize Vertex AI with project and location
+            vertexai.init(
+                project=settings.gcp_project_id,
+                location=settings.gcp_location
+            )
+            
+            logger.info(f"Vertex AI initialized - Project: {settings.gcp_project_id}, Location: {settings.gcp_location}")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize Vertex AI: {e}")
+            raise ValueError(f"Vertex AI initialization failed: {e}")
         
-        # Initialize model with safety settings and structured output support
-        self.model = genai.GenerativeModel(
-            model_name=settings.gemini_model,
-            safety_settings=[
-                {
-                    "category": "HARM_CATEGORY_HARASSMENT",
-                    "threshold": "BLOCK_ONLY_HIGH"
-                },
-                {
-                    "category": "HARM_CATEGORY_HATE_SPEECH", 
-                    "threshold": "BLOCK_ONLY_HIGH"
-                },
-                {
-                    "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                    "threshold": "BLOCK_ONLY_HIGH"
-                },
-                {
-                    "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-                    "threshold": "BLOCK_ONLY_HIGH"
-                }
-            ]
+        # Initialize model with safety settings
+        self.model = GenerativeModel(
+            model_name=settings.vertex_model,
         )
         
-        # Generation configuration for consistent results
-        self.generation_config = {
-            "temperature": 0.1,  # Low temperature for consistent grammar correction
-            "top_p": 0.8,
-            "top_k": 40,
-            "max_output_tokens": 4096,
+        # Safety settings - using Vertex AI format
+        self.safety_settings = {
+            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
         }
         
-        logger.info(f"Gemini client initialized with model: {settings.gemini_model}")
+        # Generation configuration for consistent results
+        self.generation_config = GenerationConfig(
+            temperature=0.1,  # Low temperature for consistent grammar correction
+            top_p=0.8,
+            top_k=40,
+            max_output_tokens=4096,
+        )
+        
+        logger.info(f"Vertex AI client initialized with model: {settings.vertex_model}")
     
     def _create_gemini_schema(self) -> Dict[str, Any]:
         """
-        Create a Gemini API compatible schema for structured output
+        Create a Vertex AI compatible schema for structured output
         
         Returns:
-            Schema dictionary compatible with Gemini API requirements
+            Schema dictionary compatible with Vertex AI requirements
         """
         return {
             "type": "object",
@@ -277,25 +299,14 @@ JSON RESPONSE:"""
         context: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Check and correct grammar using structured output from Gemini API
+        Check and correct grammar using structured output from Vertex AI
         
         Args:
             text: Text to check for grammar errors
             context: Optional context for better corrections
             
         Returns:
-            Dictionary with correction results using structured parsing:
-            {
-                "success": bool,
-                "original_text": str,
-                "corrected_text": str,
-                "grammar_issues": List[Dict],
-                "speaking_tips": List[str],
-                "confidence_score": float,
-                "improvements_made": int,
-                "processing_time": float,
-                "error": str (if failed)
-            }
+            Dictionary with correction results using structured parsing
         """
         try:
             if not text or not text.strip():
@@ -304,124 +315,67 @@ JSON RESPONSE:"""
             logger.info(f"Starting structured grammar check for text: '{text[:50]}{'...' if len(text) > 50 else ''}'")
             start_time = time.time()
             
-            # Temporarily enable debug logging for structured output troubleshooting
-            current_level = logger.level
-            logger.setLevel(logging.DEBUG)
-            
             # Create optimized prompt for structured output
             prompt = self._create_structured_grammar_prompt(text.strip(), context)
             
             # Try structured output first, with fallback to JSON-only mode
             try:
                 # Generation config with structured output
-                generation_config = {
-                    "temperature": 0.1,
-                    "top_p": 0.8,
-                    "top_k": 40,
-                    "max_output_tokens": 4096,
-                    "response_mime_type": "application/json",
-                    "response_schema": self._create_gemini_schema()
-                }
+                generation_config = GenerationConfig(
+                    temperature=0.1,
+                    top_p=0.8,
+                    top_k=40,
+                    max_output_tokens=4096,
+                    response_mime_type="application/json",
+                    response_schema=self._create_gemini_schema()
+                )
                 
                 logger.debug("Attempting structured output with schema")
             except Exception as schema_error:
                 logger.warning(f"Schema creation failed, falling back to JSON-only mode: {schema_error}")
                 # Fallback to JSON without schema
-                generation_config = {
-                    "temperature": 0.1,
-                    "top_p": 0.8,
-                    "top_k": 40,
-                    "max_output_tokens": 4096,
-                    "response_mime_type": "application/json"
-                }
+                generation_config = GenerationConfig(
+                    temperature=0.1,
+                    top_p=0.8,
+                    top_k=40,
+                    max_output_tokens=4096,
+                    response_mime_type="application/json"
+                )
             
             # Generate response with structured output
-            response = await self.model.generate_content_async(
+            response = await asyncio.to_thread(
+                self.model.generate_content,
                 prompt,
-                generation_config=generation_config
+                generation_config=generation_config,
+                safety_settings=self.safety_settings
             )
             
             processing_time = time.time() - start_time
             
             if not response:
-                return {"success": False, "error": "No response from Gemini API"}
+                return {"success": False, "error": "No response from Vertex AI"}
             
-            # Extract and parse structured response with enhanced debugging
+            # Extract and parse structured response
             try:
-                raw_response = ""
-                
-                # Debug the response structure
-                logger.debug(f"Response type: {type(response)}")
-                logger.debug(f"Response has candidates: {hasattr(response, 'candidates')}")
-                
-                # Get the raw response text with more robust extraction
-                if hasattr(response, 'candidates') and response.candidates and len(response.candidates) > 0:
-                    candidate = response.candidates[0]
-                    logger.debug(f"Candidate type: {type(candidate)}")
-                    
-                    # Check for finish_reason or safety issues
-                    if hasattr(candidate, 'finish_reason'):
-                        logger.debug(f"Candidate finish_reason: {candidate.finish_reason}")
-                        # Map finish reason codes to human readable messages
-                        finish_reasons = {
-                            1: "STOP (normal completion)",
-                            2: "MAX_TOKENS (length limit)",
-                            3: "SAFETY (content filtered)",
-                            4: "RECITATION (copyright concerns)",
-                            5: "OTHER (unknown issue)"
-                        }
-                        reason_code = candidate.finish_reason
-                        reason_text = finish_reasons.get(reason_code, f"Unknown ({reason_code})")
-                        
-                        if reason_code == 3:  # SAFETY
-                            logger.warning(f"Content filtered by safety system (reason: {reason_code} - SAFETY)")
-                            return {"success": False, "error": "Content filtered by safety system - using fallback"}
-                        elif reason_code == 2:  # MAX_TOKENS - might be schema complexity issue
-                            logger.warning(f"Response truncated due to length limit - this might be schema-related")
-                            return {"success": False, "error": "Response truncated - likely schema complexity issue"}
-                        elif reason_code != 1:  # Not STOP
-                            logger.warning(f"Candidate finished with reason: {reason_code} - {reason_text}")
-                            if reason_code in [4, 5]:  # RECITATION or OTHER
-                                return {"success": False, "error": f"API issue: {reason_text} - using fallback"}
-                    
-                    if hasattr(candidate, 'content') and candidate.content:
-                        if hasattr(candidate.content, 'parts') and candidate.content.parts and len(candidate.content.parts) > 0:
-                            part = candidate.content.parts[0]
-                            if hasattr(part, 'text') and part.text:
-                                raw_response = part.text.strip()
-                                logger.debug(f"Extracted text from parts[0]: {len(raw_response)} chars")
-                            else:
-                                logger.warning("Part has no text attribute or text is empty")
-                        else:
-                            raw_response = str(candidate.content).strip()
-                            logger.debug(f"Used candidate.content string: {len(raw_response)} chars")
-                    else:
-                        raw_response = str(candidate).strip()
-                        logger.debug(f"Used candidate string: {len(raw_response)} chars")
-                elif hasattr(response, 'text'):
-                    raw_response = response.text.strip()
-                    logger.debug(f"Used response.text: {len(raw_response)} chars")
-                else:
-                    raw_response = str(response).strip()
-                    logger.debug(f"Used response string: {len(raw_response)} chars")
+                # Get the response text
+                raw_response = response.text.strip()
                 
                 logger.debug(f"Raw response preview: {raw_response[:100]}...")
                 
                 if not raw_response:
-                    logger.error("Empty response from Gemini API - this might indicate content filtering or API issues")
-                    return {"success": False, "error": "Empty response from Gemini API - possible content filtering"}
+                    logger.error("Empty response from Vertex AI")
+                    return {"success": False, "error": "Empty response from Vertex AI"}
                 
                 # Parse the structured JSON response
                 try:
                     parsed_response = json.loads(raw_response)
                     analysis = GrammarAnalysisResponse(**parsed_response)
                     
-                    # Convert to output format - handle both direct JSON and Pydantic objects
+                    # Convert to output format
                     grammar_issues_formatted = []
                     if isinstance(parsed_response.get("grammar_issues"), list):
                         for issue in parsed_response["grammar_issues"]:
                             if isinstance(issue, dict):
-                                # Direct JSON format
                                 issue_text = issue.get("issue", "")
                                 explanation = issue.get("explanation", "")
                                 if issue_text and explanation:
@@ -447,7 +401,6 @@ JSON RESPONSE:"""
                     
                 except json.JSONDecodeError as e:
                     logger.warning(f"Failed to parse structured JSON response: {e}")
-                    # Fallback to legacy parsing if structured parsing fails
                     return await self._fallback_to_legacy_parsing(text, raw_response, processing_time)
                     
                 except Exception as e:
@@ -455,8 +408,8 @@ JSON RESPONSE:"""
                     return await self._fallback_to_legacy_parsing(text, raw_response, processing_time)
                     
             except Exception as parse_error:
-                logger.error(f"Error parsing Gemini response: {parse_error}")
-                return {"success": False, "error": f"Failed to parse Gemini response: {parse_error}"}
+                logger.error(f"Error parsing Vertex AI response: {parse_error}")
+                return {"success": False, "error": f"Failed to parse Vertex AI response: {parse_error}"}
             
         except Exception as e:
             logger.error(f"Structured grammar check error: {e}", exc_info=True)
@@ -465,10 +418,6 @@ JSON RESPONSE:"""
                 "error": f"Grammar check failed: {str(e)}",
                 "original_text": text
             }
-        finally:
-            # Restore original logging level
-            if 'current_level' in locals():
-                logger.setLevel(current_level)
     
     async def _fallback_to_legacy_parsing(self, text: str, raw_response: str, processing_time: float) -> Dict[str, Any]:
         """
@@ -500,16 +449,7 @@ JSON RESPONSE:"""
             advanced_mode: Return detailed analysis if True
             
         Returns:
-            Dictionary with correction results:
-            {
-                "success": bool,
-                "original_text": str,
-                "corrected_text": str,
-                "changes_made": List[Dict] (if advanced_mode),
-                "confidence_score": float (if advanced_mode),
-                "processing_time": float,
-                "error": str (if failed)
-            }
+            Dictionary with correction results
         """
         try:
             if not text or not text.strip():
@@ -524,75 +464,31 @@ JSON RESPONSE:"""
             else:
                 prompt = self._create_grammar_prompt(text.strip(), context)
             
-            # Generate response
-            response = await self.model.generate_content_async(
+            # Generate response using Vertex AI
+            response = await asyncio.to_thread(
+                self.model.generate_content,
                 prompt,
-                generation_config=self.generation_config
+                generation_config=self.generation_config,
+                safety_settings=self.safety_settings
             )
             
             processing_time = time.time() - start_time
             
             if not response:
-                return {"success": False, "error": "No response from Gemini API"}
+                return {"success": False, "error": "No response from Vertex AI"}
             
-            # Debug: Log response structure
-            logger.debug(f"Response type: {type(response)}")
-            logger.debug(f"Response has candidates: {hasattr(response, 'candidates')}")
-            
-            # More robust response extraction
+            # Extract response text
             try:
-                if hasattr(response, 'candidates') and response.candidates and len(response.candidates) > 0:
-                    candidate = response.candidates[0]
-                    if hasattr(candidate, 'content') and candidate.content:
-                        if hasattr(candidate.content, 'parts') and candidate.content.parts and len(candidate.content.parts) > 0:
-                            raw_response = candidate.content.parts[0].text.strip()
-                        else:
-                            # Try direct text access
-                            raw_response = str(candidate.content).strip()
-                    else:
-                        raw_response = str(candidate).strip()
-                elif hasattr(response, 'text'):
-                    # Direct text response
-                    raw_response = response.text.strip()
-                else:
-                    # Last resort - convert to string
-                    raw_response = str(response).strip()
+                raw_response = response.text.strip()
                     
                 if not raw_response:
-                    return {"success": False, "error": "Empty response text from Gemini API"}
+                    return {"success": False, "error": "Empty response text from Vertex AI"}
                 
-                # Clean up response that contains role metadata
-                if raw_response.startswith('role: "model"'):
-                    # Extract just the text content after the role metadata
-                    lines = raw_response.split('\n')
-                    content_lines = []
-                    found_content = False
-                    for line in lines:
-                        line = line.strip()
-                        if line.startswith('text:') or found_content:
-                            if line.startswith('text:'):
-                                # Remove 'text: "' prefix and handle the content
-                                text_content = line[5:].strip()
-                                if text_content.startswith('"'):
-                                    text_content = text_content[1:]
-                                content_lines.append(text_content)
-                                found_content = True
-                            elif line and not line.startswith('role:'):
-                                content_lines.append(line)
-                    
-                    if content_lines:
-                        # Join and clean up the content
-                        raw_response = '\n'.join(content_lines).strip()
-                        # Remove trailing quote if present
-                        if raw_response.endswith('"'):
-                            raw_response = raw_response[:-1]
-                    
-                # Log more details for debugging
                 logger.info(f"Raw response (first 200 chars): {raw_response[:200]}...")
                 
             except Exception as parse_error:
-                logger.error(f"Error parsing Gemini response: {parse_error}")
-                return {"success": False, "error": f"Failed to parse Gemini response: {parse_error}"}
+                logger.error(f"Error parsing Vertex AI response: {parse_error}")
+                return {"success": False, "error": f"Failed to parse Vertex AI response: {parse_error}"}
             
             if advanced_mode:
                 # Parse JSON response for advanced mode
@@ -643,36 +539,6 @@ JSON RESPONSE:"""
             logger.warning("Response appears to be JSON format, cannot clean as simple text")
             return "Grammar check unavailable - original text preserved"
         
-        # Handle API response structure artifacts
-        if 'role: "model"' in cleaned:
-            # This looks like a raw API response, try to extract just the text
-            lines = cleaned.split('\n')
-            # Find lines that look like actual corrected text (not metadata)
-            text_lines = []
-            found_text_section = False
-            for line in lines:
-                line = line.strip()
-                if line.startswith('text:'):
-                    # Extract content after 'text: "'
-                    text_content = line[5:].strip()
-                    if text_content.startswith('"'):
-                        text_content = text_content[1:]
-                    if text_content.endswith('"'):
-                        text_content = text_content[:-1]
-                    text_lines.append(text_content)
-                    found_text_section = True
-                elif found_text_section and line and not line.startswith('role:') and not line.startswith('{') and not line.startswith('}'):
-                    # Continue collecting text lines until we hit another metadata section
-                    if line.endswith('"'):
-                        line = line[:-1]
-                    text_lines.append(line)
-                elif found_text_section and (line.startswith('role:') or not line):
-                    # End of text section
-                    break
-            
-            if text_lines:
-                cleaned = ' '.join(text_lines)
-        
         # Remove common prefixes that the AI might add
         for prefix in prefixes_to_remove:
             if cleaned.startswith(prefix):
@@ -688,9 +554,7 @@ JSON RESPONSE:"""
         cleaned = cleaned.replace("**", "").replace("*", "")
         
         # Check if the result is just metadata or empty
-        if not cleaned or cleaned.lower().startswith('role:') or len(cleaned.strip()) < 10:
-            # If we got metadata or very short response, it's likely an error
-            # Return a message indicating grammar check wasn't successful
+        if not cleaned or len(cleaned.strip()) < 10:
             return "Grammar check unavailable - original text preserved"
         
         return cleaned
@@ -725,7 +589,7 @@ JSON RESPONSE:"""
                     extracted = match.group(1)
                     # Basic cleaning of escape characters
                     extracted = extracted.replace('\\"', '"').replace('\\n', ' ').strip()
-                    if extracted and len(extracted) > 10:  # Ensure it's substantial
+                    if extracted and len(extracted) > 10:
                         logger.info(f"Extracted text from malformed JSON: {extracted[:100]}...")
                         return extracted
             
@@ -784,7 +648,7 @@ JSON RESPONSE:"""
                             parsed.get("correctedtext") or 
                             parsed.get("corrected") or "")
             
-            # Debug logging to track what we extracted
+            # Debug logging
             logger.debug(f"Parsed JSON successfully. Corrected text: {corrected_text[:100] if corrected_text else 'None'}...")
             
             # If we didn't get corrected text, something is wrong with the JSON structure
@@ -800,393 +664,154 @@ JSON RESPONSE:"""
                            parsed.get("speakingtips") or 
                            parsed.get("tips") or [])
             
-            # Process grammar issues - handle both simple strings and complex objects
-            if isinstance(grammar_issues, str):
-                grammar_issues = [grammar_issues]
-            elif isinstance(grammar_issues, list):
-                processed_issues = []
+            # Format grammar issues as strings
+            grammar_issues_formatted = []
+            if isinstance(grammar_issues, list):
                 for issue in grammar_issues:
                     if isinstance(issue, dict):
-                        # Handle complex issue format with explanation
                         issue_text = issue.get("issue", "")
                         explanation = issue.get("explanation", "")
                         if issue_text and explanation:
-                            processed_issues.append(f"{issue_text}: {explanation}")
+                            grammar_issues_formatted.append(f"{issue_text}: {explanation}")
                         elif issue_text:
-                            processed_issues.append(issue_text)
-                    elif isinstance(issue, str):
-                        processed_issues.append(issue)
-                grammar_issues = processed_issues
+                            grammar_issues_formatted.append(issue_text)
+                    else:
+                        grammar_issues_formatted.append(str(issue))
             
-            # Process speaking tips - handle different formats
-            if isinstance(speaking_tips, str):
-                speaking_tips = [speaking_tips]
-            elif isinstance(speaking_tips, list):
-                processed_tips = []
-                for tip in speaking_tips:
-                    if isinstance(tip, dict):
-                        # Handle complex tip format
-                        tip_text = tip.get("tip", "") or tip.get("suggestion", "") or str(tip)
-                        processed_tips.append(tip_text)
-                    elif isinstance(tip, str):
-                        processed_tips.append(tip)
-                speaking_tips = processed_tips
+            # Determine number of changes
+            try:
+                if original_text.strip() != corrected_text.strip():
+                    # Simple word diff count
+                    orig_words = original_text.strip().split()
+                    corr_words = corrected_text.strip().split()
+                    changes = abs(len(orig_words) - len(corr_words))
+                    # Add differences in matching words
+                    for i in range(min(len(orig_words), len(corr_words))):
+                        if orig_words[i] != corr_words[i]:
+                            changes += 1
+                else:
+                    changes = 0
+            except:
+                changes = 0
             
             return {
                 "success": True,
                 "original_text": original_text,
                 "corrected_text": corrected_text,
-                "grammar_issues": grammar_issues,
-                "speaking_tips": speaking_tips,
-                "processing_time": processing_time
+                "grammar_issues": grammar_issues_formatted,
+                "speaking_tips": speaking_tips if isinstance(speaking_tips, list) else [],
+                "processing_time": processing_time,
+                "improvements_made": changes,
+                "confidence_score": 0.90  # Default confidence
             }
             
         except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse JSON response, falling back to simple parsing: {e}")
-            logger.debug(f"Raw response that failed to parse: {response_text[:500]}...")
-            
-            # Better fallback - try to extract text from the response even if it's malformed JSON
+            logger.warning(f"JSON parsing failed: {e}. Attempting text extraction from malformed JSON.")
             corrected_text = self._extract_text_from_malformed_response(response_text, original_text)
             
             return {
                 "success": True,
                 "original_text": original_text,
                 "corrected_text": corrected_text,
-                "grammar_issues": ["Unable to analyze grammar issues - JSON parsing failed"],
-                "speaking_tips": ["Try speaking more clearly and use complete sentences"],
-                "processing_time": processing_time
+                "grammar_issues": ["Unable to analyze grammar issues due to response format"],
+                "speaking_tips": ["Try speaking more clearly and at a moderate pace"],
+                "processing_time": processing_time,
+                "improvements_made": 0,
+                "confidence_score": 0.70  # Lower confidence for fallback
             }
         except Exception as e:
             logger.error(f"Error parsing JSON response: {e}")
             return {
                 "success": False,
                 "error": f"Failed to parse response: {str(e)}",
-                "original_text": original_text,
-                "corrected_text": original_text,
-                "processing_time": processing_time
+                "original_text": original_text
             }
     
     def _parse_advanced_response(self, response_text: str, original_text: str) -> Dict[str, Any]:
         """
-        Parse advanced JSON response from the AI model
+        Parse advanced mode response with detailed change tracking
         
         Args:
             response_text: Raw JSON response
             original_text: Original input text
             
         Returns:
-            Parsed response dictionary
+            Parsed response with detailed changes
         """
         try:
             import json
+            import re
             
-            # Try to find JSON in the response
-            json_start = response_text.find('{')
-            json_end = response_text.rfind('}') + 1
+            # Clean and extract JSON
+            cleaned = response_text.strip()
+            if cleaned.startswith('```json'):
+                cleaned = cleaned[7:]
+            if cleaned.startswith('```'):
+                cleaned = cleaned[3:]
+            if cleaned.endswith('```'):
+                cleaned = cleaned[:-3]
             
-            if json_start >= 0 and json_end > json_start:
-                json_text = response_text[json_start:json_end]
-                parsed_response = json.loads(json_text)
-                
-                return {
-                    "success": True,
-                    "original_text": original_text,
-                    "corrected_text": parsed_response.get("corrected_text", original_text),
-                    "changes_made": parsed_response.get("changes_made", []),
-                    "confidence_score": parsed_response.get("confidence_score", 0.0),
-                    "text_quality": parsed_response.get("text_quality", "unknown")
-                }
+            json_match = re.search(r'\{.*\}', cleaned, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
             else:
-                # Fallback to simple cleaning
-                cleaned_text = self._clean_simple_response(response_text)
-                return {
-                    "success": True,
-                    "original_text": original_text,
-                    "corrected_text": cleaned_text,
-                    "changes_made": [],
-                    "confidence_score": 0.8,
-                    "text_quality": "processed_without_analysis"
-                }
-                
-        except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse JSON response: {e}")
-            # Fallback to simple cleaning
-            cleaned_text = self._clean_simple_response(response_text)
+                json_str = cleaned
+            
+            parsed = json.loads(json_str)
+            
             return {
                 "success": True,
                 "original_text": original_text,
-                "corrected_text": cleaned_text,
-                "changes_made": [],
-                "confidence_score": 0.7,
-                "text_quality": "processed_with_fallback"
-            }
-    
-    async def check_grammar_json_only(self, text: str, context: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Check grammar using JSON output without schema constraints
-        This is a middle ground between structured output and legacy parsing
-        """
-        try:
-            if not text or not text.strip():
-                return {"success": False, "error": "Empty text provided"}
-            
-            logger.info(f"Starting JSON-only grammar check for text: '{text[:50]}{'...' if len(text) > 50 else ''}'")
-            start_time = time.time()
-            
-            # Create prompt that requests JSON without enforcing schema
-            prompt = f"""You are a professional grammar checker. Analyze this text and provide corrections.
-
-Please respond with a JSON object containing:
-- corrected_text: the corrected version
-- confidence_score: your confidence (0.0 to 1.0)
-- improvements_made: number of changes
-- grammar_issues: array of issue descriptions
-- speaking_tips: array of improvement suggestions
-
-Text to analyze: "{text.strip()}"
-
-Respond with valid JSON only:"""
-            
-            # Simple JSON generation without schema
-            generation_config = {
-                "temperature": 0.1,
-                "top_p": 0.8,
-                "top_k": 40,
-                "max_output_tokens": 1500,
-                "response_mime_type": "application/json"
+                "corrected_text": parsed.get("corrected_text", original_text),
+                "changes_made": parsed.get("changes_made", []),
+                "confidence_score": parsed.get("confidence_score", 0.90),
+                "text_quality": parsed.get("text_quality", "unknown")
             }
             
-            response = await self.model.generate_content_async(
-                prompt,
-                generation_config=generation_config
-            )
-            
-            processing_time = time.time() - start_time
-            
-            if not response or not response.candidates:
-                return {"success": False, "error": "No response from Gemini API"}
-            
-            candidate = response.candidates[0]
-            if hasattr(candidate, 'finish_reason') and candidate.finish_reason != 1:
-                logger.warning(f"JSON-only check finished with reason: {candidate.finish_reason}")
-                return {"success": False, "error": "API response issue"}
-            
-            # Extract response text
-            raw_response = ""
-            if candidate.content and candidate.content.parts:
-                raw_response = candidate.content.parts[0].text.strip()
-            
-            if not raw_response:
-                return {"success": False, "error": "Empty response from JSON-only check"}
-            
-            # Parse JSON response
-            try:
-                parsed = json.loads(raw_response)
-                return {
-                    "success": True,
-                    "original_text": text,
-                    "corrected_text": parsed.get("corrected_text", text),
-                    "confidence_score": parsed.get("confidence_score", 0.9),
-                    "improvements_made": parsed.get("improvements_made", 0),
-                    "grammar_issues": parsed.get("grammar_issues", []),
-                    "speaking_tips": parsed.get("speaking_tips", []),
-                    "processing_time": processing_time,
-                    "method_used": "json_only"
-                }
-            except json.JSONDecodeError as e:
-                logger.warning(f"JSON-only parsing failed: {e}")
-                return {"success": False, "error": "JSON parsing failed"}
-                
         except Exception as e:
-            logger.error(f"JSON-only grammar check error: {e}")
-            return {"success": False, "error": str(e)}
-
-    async def check_grammar_with_retry(
-        self, 
-        text: str, 
-        context: Optional[str] = None,
-        max_retries: int = 4,
-        retry_delay: float = 1.0,
-        use_structured: bool = True
-    ) -> Dict[str, Any]:
-        """
-        Check grammar with retry logic for better reliability
-        
-        Args:
-            text: Text to check
-            context: Optional context
-            max_retries: Maximum retry attempts
-            retry_delay: Initial delay between retries
-            use_structured: Whether to use structured output (recommended)
-            
-        Returns:
-            Grammar check result with retry information
-        """
-        last_error = None
-        
-        for attempt in range(max_retries + 1):
-            try:
-                logger.debug(f"Grammar check attempt {attempt + 1}/{max_retries + 1}")
-                
-                # Try different approaches in order of preference
-                if use_structured and attempt == 0:
-                    # First try: structured output with schema
-                    result = await self.check_grammar_structured(text, context)
-                elif attempt == 1:
-                    # Second try: JSON without schema
-                    result = await self.check_grammar_json_only(text, context)
-                else:
-                    # Final try: legacy parsing
-                    result = await self.check_grammar(text, context)
-                
-                if result.get("success"):
-                    if attempt > 0:
-                        logger.info(f"Grammar check succeeded after {attempt + 1} attempts")
-                    result["retry_attempts"] = attempt
-                    if not result.get("method_used"):
-                        method_map = {0: "structured", 1: "json_only", 2: "legacy"}
-                        result["method_used"] = method_map.get(attempt, "legacy")
-                    return result
-                
-                last_error = result.get("error", "Unknown error")
-                
-                if attempt < max_retries:
-                    delay = retry_delay * (2 ** attempt)
-                    logger.warning(f"Grammar check attempt {attempt + 1} failed: {last_error}. Retrying in {delay}s...")
-                    await asyncio.sleep(delay)
-                    
-            except Exception as e:
-                last_error = str(e)
-                logger.error(f"Grammar check attempt {attempt + 1} exception: {e}")
-                
-                if attempt < max_retries:
-                    delay = retry_delay * (2 ** attempt)
-                    await asyncio.sleep(delay)
-        
-        # All attempts failed - return original text as fallback
-        logger.error(f"All grammar check attempts failed: {last_error}")
-        return {
-            "success": False,
-            "error": f"Grammar check failed after {max_retries + 1} attempts: {last_error}",
-            "original_text": text,
-            "corrected_text": text,  # Fallback to original text
-            "retry_attempts": max_retries + 1,
-            "fallback_used": True
-        }
-    
-    async def batch_check_grammar(self, texts: List[str], context: Optional[str] = None) -> List[Dict[str, Any]]:
-        """
-        Check grammar for multiple texts in batch
-        
-        Args:
-            texts: List of texts to check
-            context: Optional context for all texts
-            
-        Returns:
-            List of grammar check results
-        """
-        logger.info(f"Starting batch grammar check for {len(texts)} texts")
-        
-        # Process texts concurrently with semaphore to limit concurrent requests
-        semaphore = asyncio.Semaphore(5)  # Limit to 5 concurrent requests
-        
-        async def check_single_text(text: str) -> Dict[str, Any]:
-            async with semaphore:
-                return await self.check_grammar_with_retry(text, context)
-        
-        results = await asyncio.gather(
-            *[check_single_text(text) for text in texts],
-            return_exceptions=True
-        )
-        
-        # Handle any exceptions that occurred
-        processed_results = []
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                processed_results.append({
-                    "success": False,
-                    "error": str(result),
-                    "original_text": texts[i],
-                    "corrected_text": texts[i]
-                })
-            else:
-                processed_results.append(result)
-        
-        logger.info(f"Batch grammar check completed: {len(processed_results)} results")
-        return processed_results
+            logger.error(f"Error parsing advanced response: {e}")
+            return {
+                "success": False,
+                "error": f"Failed to parse advanced response: {str(e)}",
+                "original_text": original_text
+            }
     
     async def check_api_health(self) -> Dict[str, Any]:
         """
-        Check Gemini API health and accessibility
+        Check if the Vertex AI API is accessible and healthy
         
         Returns:
-            Health status dictionary
+            Dictionary with health status
         """
         try:
-            # Simple test request
-            test_response = await self.model.generate_content_async(
-                "Test message for API health check",
-                generation_config={"max_output_tokens": 10}
+            # Try a simple generation request
+            test_text = "Hello world"
+            response = await asyncio.to_thread(
+                self.model.generate_content,
+                f"Say 'OK' if you can read this: {test_text}",
+                generation_config=GenerationConfig(
+                    temperature=0.1,
+                    max_output_tokens=10
+                )
             )
             
-            # Extract response text safely
-            response_text = "No response"
-            if test_response and test_response.candidates and len(test_response.candidates) > 0:
-                candidate = test_response.candidates[0]
-                if candidate.content and candidate.content.parts and len(candidate.content.parts) > 0:
-                    response_text = candidate.content.parts[0].text
-            
-            # Test structured output capability
-            structured_support = await self._test_structured_output()
-            
-            return {
-                "healthy": True,
-                "api_accessible": True,
-                "model": settings.gemini_model,
-                "test_response": response_text,
-                "structured_output_support": structured_support
-            }
-            
-        except Exception as e:
-            logger.error(f"Gemini health check failed: {e}")
-            return {
-                "healthy": False,
-                "api_accessible": False,
-                "model": settings.gemini_model,
-                "error": str(e)
-            }
-    
-    async def _test_structured_output(self) -> bool:
-        """
-        Test if the API supports structured output with response schema
-        
-        Returns:
-            True if structured output is supported, False otherwise
-        """
-        try:
-            # Create a simple test schema
-            test_prompt = "Respond with: corrected_text: 'Hello world', confidence_score: 0.95"
-            
-            # Try structured output
-            test_config = {
-                "temperature": 0.1,
-                "max_output_tokens": 100,
-                "response_mime_type": "application/json",
-                "response_schema": self._create_gemini_schema()
-            }
-            
-            test_response = await self.model.generate_content_async(
-                test_prompt,
-                generation_config=test_config
-            )
-            
-            if test_response and test_response.candidates:
-                logger.info("Structured output test: SUCCESS - API supports response schema")
-                return True
+            if response and response.text:
+                return {
+                    "healthy": True,
+                    "message": "Vertex AI API is accessible",
+                    "model": settings.vertex_model,
+                    "project": settings.gcp_project_id,
+                    "location": settings.gcp_location
+                }
             else:
-                logger.warning("Structured output test: FAILED - No response received")
-                return False
+                return {
+                    "healthy": False,
+                    "error": "Vertex AI returned empty response"
+                }
                 
         except Exception as e:
-            logger.warning(f"Structured output test: FAILED - {e}")
-            return False
+            logger.error(f"Vertex AI health check failed: {e}")
+            return {
+                "healthy": False,
+                "error": f"Vertex AI health check failed: {str(e)}"
+            }

@@ -1,31 +1,55 @@
-# Production-optimized multi-stage build
-FROM python:3.11-slim AS dependencies
+# syntax=docker/dockerfile:1.4
+# Enable BuildKit features for faster builds
 
-# Install system dependencies for building
-RUN apt-get update && apt-get install -y \
+# ============================================
+# Stage 1: Base Python Image with System Deps
+# ============================================
+FROM python:3.11-slim AS base
+
+# Install system dependencies once (cached layer)
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y \
     build-essential \
     pkg-config \
     libffi-dev \
     libssl-dev \
-    git \
+    ffmpeg \
+    libsndfile1 \
+    curl \
+    tini \
     && rm -rf /var/lib/apt/lists/*
+
+# ============================================
+# Stage 2: Python Dependencies Builder
+# ============================================
+FROM base AS dependencies
 
 # Create virtual environment
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Upgrade pip and install wheel for faster builds
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+# Upgrade pip and install wheel (cached layer)
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip setuptools wheel
 
-# Copy and install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy ONLY requirements first (better caching)
+COPY requirements.txt /tmp/requirements.txt
 
-# Runtime stage - clean lightweight image
+# Install Python dependencies with pip cache
+# This layer will be cached unless requirements.txt changes
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-cache-dir -r /tmp/requirements.txt
+
+# ============================================
+# Stage 3: Runtime Image
+# ============================================
 FROM python:3.11-slim AS runtime
 
-# Install only runtime dependencies
-RUN apt-get update && apt-get install -y \
+# Install ONLY runtime dependencies (no build tools)
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y \
     ffmpeg \
     libsndfile1 \
     curl \
@@ -33,70 +57,54 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-# Copy virtual environment from build stage
+# Copy virtual environment from builder stage
 COPY --from=dependencies /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Create non-root application user for security
+# Create non-root user for security
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
 # Set working directory
 WORKDIR /app
 
-# Copy application code with proper ownership
-# CRITICAL FIX: Copy the entire app directory structure
-COPY --chown=appuser:appuser ./app ./app
-COPY --chown=appuser:appuser ./bot_main.py ./bot_main.py
-COPY --chown=appuser:appuser ./requirements.txt ./requirements.txt
-
-# CRITICAL FIX: config.py is in .gitignore, so copy it explicitly if it exists
-# Also copy whitelist_config.py (needed for whitelist functionality)
-COPY --chown=appuser:appuser ./app/config.py ./app/config.py
-COPY --chown=appuser:appuser ./whitelist_config.py ./whitelist_config.py
-
-# FIX: Verify app directory contents during build (remove after debugging)
-RUN echo "=== Verifying app directory structure ===" && \
-    ls -la /app/app && \
-    echo "=== Checking for config files ===" && \
-    find /app -name "*config*" -type f && \
-    echo "=== End verification ==="
-
-# Set Python path for proper imports
-ENV PYTHONPATH=/app:/app/app
-
-# Create necessary directories with proper permissions
+# Create directories with proper permissions (cached layer)
 RUN mkdir -p uploads logs tmp config data && \
     chown -R appuser:appuser uploads logs tmp config data && \
     chmod 755 uploads logs tmp config data
 
-# Copy initial whitelist_config.py to writable config directory
-# This allows the bot to modify it even in read-only filesystem
-# Note: The volume mount will override this, but this provides a default
+# Copy static files first (changes less frequently = better caching)
+COPY --chown=appuser:appuser ./requirements.txt ./requirements.txt
+COPY --chown=appuser:appuser ./.env ./.env
+COPY --chown=appuser:appuser ./service-account-key.json ./service-account-key.json
+
+# Copy whitelist config
+COPY --chown=appuser:appuser ./whitelist_config.py ./whitelist_config.py
 COPY --chown=appuser:appuser ./whitelist_config.py ./config/whitelist_config.py
 
-# Switch to non-root user
-USER appuser
+# Copy application code LAST (changes most frequently)
+# This ensures code changes don't invalidate dependency cache
+COPY --chown=appuser:appuser ./app ./app
+COPY --chown=appuser:appuser ./bot_main.py ./bot_main.py
 
-# Environment variables for production
+# Set Python environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONHASHSEED=random \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONPATH=/app:/app/app
 
-# FIX: Updated health check to handle missing config gracefully
+# Switch to non-root user
+USER appuser
+
+# Optimized health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD python -c "import sys; sys.path.append('/app'); \
-    try: \
-        from app.config import settings; print('Health check passed - config loaded'); \
-    except ImportError: \
-        print('Warning: config not found, but bot structure is OK'); \
-    exit(0)" || exit 1
+    CMD python -c "from app.config import settings; print('OK')" || exit 1
 
-# Expose application port (for future web interface)
+# Expose application port
 EXPOSE 8000
 
-# Use tini as PID 1 for proper signal handling
+# Use tini for proper signal handling
 ENTRYPOINT ["/usr/bin/tini", "--"]
 
 # Start the application

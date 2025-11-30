@@ -64,6 +64,19 @@ secrets.json
 *.key
 *.pem
 
+# Google Cloud credentials (IMPORTANT: Never commit!)
+service-account-key.json
+*-service-account.json
+
+# Test and debug files
+test_*.py
+*_test.py
+debug_*.py
+simple_test.py
+test_output.txt
+test_log.txt
+nul
+
 # Spyder project settings
 .spyderproject
 .spyproject
