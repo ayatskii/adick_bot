@@ -16,7 +16,7 @@ source .env
 
 # Validate required environment variables
 echo "🔍 Validating environment variables..."
-required_vars=("TELEGRAM_BOT_TOKEN" "ELEVENLABS_API_KEY" "GEMINI_API_KEY")
+required_vars=("TELEGRAM_BOT_TOKEN" "ELEVENLABS_API_KEY" "OPENAI_API_KEY")
 
 for var in "${required_vars[@]}"; do
     if [[ -z "${!var}" ]]; then

@@ -8,7 +8,7 @@ from telegram import Message
 
 from app.config import settings
 from app.services.elevenlabs_client import ElevenLabsClient
-from app.services.gemini_client import GeminiClient
+from app.services.openai_client import OpenAIClient
 from app.utils.file_handler import FileHandler
 
 logger = logging.getLogger(__name__)
@@ -18,17 +18,17 @@ class AudioProcessor:
     Main service that orchestrates the complete audio processing pipeline:
     1. Download audio from Telegram
     2. Transcribe using ElevenLabs
-    3. Check grammar using Gemini
+    3. Check grammar using OpenAI
     4. Return results to user
     """
     
     def __init__(self):
         """Initialize the audio processor with all required clients"""
         self.elevenlabs_client = ElevenLabsClient()
-        self.gemini_client = GeminiClient()
+        self.openai_client = OpenAIClient()
         self.file_handler = FileHandler()
         
-        logger.info("Audio processor initialized with ElevenLabs and Gemini clients")
+        logger.info("Audio processor initialized with ElevenLabs and OpenAI clients")
     
     async def process_audio_message(self, message: Message) -> Dict[str, Any]:
         """
@@ -82,9 +82,9 @@ class AudioProcessor:
             if not original_text:
                 return {"success": False, "error": "No speech detected in audio file"}
             
-            # Step 4: Check grammar using Gemini
+            # Step 4: Check grammar using OpenAI
             logger.info("Starting grammar check...")
-            grammar_result = await self.gemini_client.check_grammar_with_retry(
+            grammar_result = await self.openai_client.check_grammar_with_retry(
                 text=original_text,
                 context="transcribed_speech",
                 max_retries=2
@@ -104,7 +104,7 @@ class AudioProcessor:
                 "corrected_text": corrected_text,
             }
             
-            # Add Gemini grammar analysis data if available
+            # Add OpenAI grammar analysis data if available
             if grammar_result.get("success"):
                 result["grammar_issues"] = grammar_result.get("grammar_issues", [])
                 result["speaking_tips"] = grammar_result.get("speaking_tips", [])
@@ -192,18 +192,18 @@ class AudioProcessor:
         # Check ElevenLabs health
         elevenlabs_health = await self.elevenlabs_client.check_api_health()
         
-        # Check Gemini health
-        gemini_health = await self.gemini_client.check_api_health()
+        # Check OpenAI health
+        openai_health = await self.openai_client.check_api_health()
         
         # Get file handler stats
         file_stats = self.file_handler.get_directory_stats()
         
         return {
             "elevenlabs": elevenlabs_health,
-            "gemini": gemini_health,
+            "openai": openai_health,
             "file_handler": file_stats,
             "overall_status": "healthy" if (
                 elevenlabs_health.get("healthy") and 
-                gemini_health.get("healthy")
+                openai_health.get("healthy")
             ) else "degraded"
         }

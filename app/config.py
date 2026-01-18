@@ -17,12 +17,10 @@ class Settings:
         # Required API Keys
         self.telegram_bot_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
         self.elevenlabs_api_key: str = os.getenv("ELEVENLABS_API_KEY", "")
+        self.openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
         
-        # Google Cloud / Vertex AI Configuration
-        self.gcp_project_id: str = os.getenv("GCP_PROJECT_ID", "aceacademy-478613")
-        self.gcp_location: str = os.getenv("GCP_LOCATION", "us-central1")
-        self.gcp_credentials_path: Optional[str] = os.getenv("GCP_CREDENTIALS_PATH", None)
-        self.vertex_model: str = os.getenv("VERTEX_MODEL", "gemini-2.0-flash-exp")
+        # OpenAI Configuration
+        self.openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
         
         # Optional Configuration with defaults
         self.log_level: str = os.getenv("LOG_LEVEL", "INFO")
@@ -48,7 +46,7 @@ class Settings:
         required_settings = [
             self.telegram_bot_token,
             self.elevenlabs_api_key,
-            self.gcp_project_id
+            self.openai_api_key
         ]
         return all(setting and setting.strip() for setting in required_settings)
     
@@ -62,7 +60,7 @@ class Settings:
         return {
             "telegram_bot_token": mask_key(self.telegram_bot_token),
             "elevenlabs_api_key": mask_key(self.elevenlabs_api_key),
-            "gcp_project_id": self.gcp_project_id if self.gcp_project_id else "***"
+            "openai_api_key": mask_key(self.openai_api_key)
         }
     
     def __repr__(self) -> str:
@@ -72,9 +70,8 @@ class Settings:
             f"Settings("
             f"telegram_bot_token='{masked_keys['telegram_bot_token']}', "
             f"elevenlabs_api_key='{masked_keys['elevenlabs_api_key']}', "
-            f"gcp_project_id='{masked_keys['gcp_project_id']}', "
-            f"gcp_location='{self.gcp_location}', "
-            f"vertex_model='{self.vertex_model}', "
+            f"openai_api_key='{masked_keys['openai_api_key']}', "
+            f"openai_model='{self.openai_model}', "
             f"log_level='{self.log_level}', "
             f"max_file_size={self.max_file_size}, "
             f"upload_dir='{self.upload_dir}', "

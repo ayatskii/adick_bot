@@ -52,7 +52,7 @@ from app.config import settings
 from app.utils.logger import setup_logging, get_logger
 from app.services.audio_processor import AudioProcessor
 from app.services.elevenlabs_client import ElevenLabsClient
-from app.services.gemini_client import GeminiClient
+from app.services.openai_client import OpenAIClient
 
 # Whitelist system
 from app.whitelist import check_user_access, check_username_access
@@ -91,7 +91,7 @@ class TelegramAudioBot:
         try:
             logger.info("🔧 Initializing backend services...")
             
-            # Initialize audio processor (which includes ElevenLabs and Gemini clients)
+            # Initialize audio processor (which includes ElevenLabs and OpenAI clients)
             self.audio_processor = AudioProcessor()
             
             # Test service connectivity
@@ -117,15 +117,15 @@ class TelegramAudioBot:
         except Exception as e:
             logger.warning(f"⚠️ ElevenLabs health check failed: {e}")
         
-        # Test Gemini
+        # Test OpenAI
         try:
-            health = await self.audio_processor.gemini_client.check_api_health()
+            health = await self.audio_processor.openai_client.check_api_health()
             if health.get("healthy"):
-                logger.info("✅ Gemini API: Healthy")
+                logger.info("✅ OpenAI API: Healthy")
             else:
-                logger.warning(f"⚠️ Gemini API: {health.get('error', 'Unknown issue')}")
+                logger.warning(f"⚠️ OpenAI API: {health.get('error', 'Unknown issue')}")
         except Exception as e:
-            logger.warning(f"⚠️ Gemini health check failed: {e}")
+            logger.warning(f"⚠️ OpenAI health check failed: {e}")
     
     def create_application(self) -> Application:
         """Create and configure the Telegram application"""
@@ -640,14 +640,13 @@ if __name__ == "__main__":
         logger.info(f"📋 Configuration validation:")
         logger.info(f"  • Bot Token: {'✅ Set' if settings.telegram_bot_token else '❌ Missing'}")
         logger.info(f"  • ElevenLabs API: {'✅ Set' if settings.elevenlabs_api_key else '❌ Missing'}")
-        logger.info(f"  • GCP Project ID: {'✅ ' + settings.gcp_project_id if settings.gcp_project_id else '❌ Missing'}")
-        logger.info(f"  • GCP Location: {settings.gcp_location}")
-        logger.info(f"  • Vertex Model: {settings.vertex_model}")
+        logger.info(f"  • OpenAI API: {'✅ Set' if settings.openai_api_key else '❌ Missing'}")
+        logger.info(f"  • OpenAI Model: {settings.openai_model}")
         logger.info(f"  • Upload Dir: {settings.upload_dir}")
         logger.info(f"  • Log Level: {settings.log_level}")
         
         # Check for missing critical configuration
-        if not all([settings.telegram_bot_token, settings.elevenlabs_api_key, settings.gcp_project_id]):
+        if not all([settings.telegram_bot_token, settings.elevenlabs_api_key, settings.openai_api_key]):
             logger.error("❌ Missing required API keys! Check your .env file.")
             sys.exit(1)
         

@@ -2,7 +2,7 @@
 
 ## 🎯 Overview
 
-The Telegram Audio Bot is a sophisticated AI-powered bot that processes audio messages, transcribes speech using ElevenLabs API, and checks/corrects grammar using Google Gemini AI.
+The Telegram Audio Bot is a sophisticated AI-powered bot that processes audio messages, transcribes speech using ElevenLabs API, and checks/corrects grammar using OpenAI GPT.
 
 ## 🚀 Quick Start
 
@@ -52,7 +52,7 @@ The bot processes these audio types:
 1. **Audio Download** - Securely downloads audio from Telegram
 2. **Validation** - Checks file size, format, and integrity  
 3. **Transcription** - Uses ElevenLabs Scribe API for speech-to-text
-4. **Grammar Check** - Uses Gemini AI for grammar correction
+4. **Grammar Check** - Uses OpenAI for grammar correction
 5. **Response** - Returns both original and corrected transcriptions
 
 ## 🌍 Language Support
@@ -96,11 +96,11 @@ The bot provides clear error messages for:
 # Required
 TELEGRAM_BOT_TOKEN=your_bot_token_from_botfather
 ELEVENLABS_API_KEY=your_elevenlabs_api_key
-GEMINI_API_KEY=your_gemini_api_key
+OPENAI_API_KEY=your_openai_api_key
 
 # Optional
 ELEVEN_LABS_MODEL=eleven_multilingual_v2
-GEMINI_MODEL=gemini-2.5-pro
+OPENAI_MODEL=gpt-4o-mini
 MAX_FILE_SIZE=26214400  # 25MB
 LOG_LEVEL=INFO
 POLLING_INTERVAL=1.0
@@ -119,10 +119,10 @@ POLLING_INTERVAL=1.0
 3. Generate a new key with transcription permissions
 4. Copy to `ELEVENLABS_API_KEY`
 
-#### 3. Google Gemini API Key
-1. Visit [Google AI Studio](https://aistudio.google.com)
+#### 3. OpenAI API Key
+1. Visit [OpenAI Platform](https://platform.openai.com)
 2. Create a new API key
-3. Copy to `GEMINI_API_KEY`
+3. Copy to `OPENAI_API_KEY`
 
 ## 🔧 Development
 
@@ -162,7 +162,7 @@ make health
 ### Health Checks
 The bot provides comprehensive health monitoring:
 - ElevenLabs API connectivity
-- Gemini API connectivity  
+- OpenAI API connectivity
 - File system access
 - Memory and CPU usage
 
@@ -220,7 +220,7 @@ make restart
 python test_api.py
 
 # Verify environment variables
-printenv | grep -E "(TELEGRAM|ELEVEN|GEMINI)"
+printenv | grep -E "(TELEGRAM|ELEVEN|OPENAI)"
 ```
 
 ### Support

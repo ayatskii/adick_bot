@@ -28,7 +28,7 @@ This document provides comprehensive instructions for deploying the Telegram Aud
 - Valid API keys for:
   - Telegram Bot (from @BotFather)
   - ElevenLabs API
-  - Google Gemini API
+  - OpenAI API
 
 ## 🔧 Configuration
 
@@ -40,11 +40,11 @@ Copy `env.production.example` to `.env` and configure:
 # Required API Keys
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 ELEVENLABS_API_KEY=your_elevenlabs_api_key
-GEMINI_API_KEY=your_gemini_api_key
+OPENAI_API_KEY=your_openai_api_key
 
 # Model Configuration
 ELEVEN_LABS_MODEL=eleven_multilingual_v2
-GEMINI_MODEL=gemini-2.5-pro
+OPENAI_MODEL=gpt-4o-mini
 
 # Application Settings
 MAX_FILE_SIZE=26214400  # 25MB
